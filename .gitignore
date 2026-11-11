@@ -1,0 +1,45 @@
+# 依赖
+node_modules/
+package-lock.json
+
+# 构建产物
+build/
+app/build/
+.gradle/
+.gradle/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# 密钥与配置（绝对不上传）
+secrets.env
+*.env
+*.key
+*.pem
+local.properties
+msg.key
+
+# 数据库与用户数据
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+images/
+backups/
+*.enc
+
+# 编辑器
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# 日志
+*.log
+logs/
+
+# 本地测试
+test/*.tmp
+/tmp/

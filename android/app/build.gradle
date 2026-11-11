@@ -1,0 +1,33 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'cc.ccwu.bierlan.qiaoqiao'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "cc.ccwu.bierlan.qiaoqiao"
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // 自己用，用 debug 签名就够；要上架再换正式签名
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// 本项目只用系统 API，没有任何第三方依赖
+dependencies {
+}
