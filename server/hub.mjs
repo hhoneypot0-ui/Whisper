@@ -82,6 +82,18 @@ export class Hub {
     return n
   }
 
+  /** 广播给所有在线连接（签到提醒之类） */
+  broadcastAll(payload) {
+    const raw = JSON.stringify(payload)
+    let n = 0
+    for (const set of this.byUser.values()) {
+      for (const ws of set) {
+        if (ws.readyState === 1) { ws.send(raw); n++ }
+      }
+    }
+    return n
+  }
+
   /** 心跳清扫：上一轮没回 pong 的直接断开 */
   _sweep() {
     for (const [, set] of this.byUser) {

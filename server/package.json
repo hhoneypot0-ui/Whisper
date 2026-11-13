@@ -8,6 +8,8 @@
     "test": "node test/e2e.mjs"
   },
   "dependencies": {
+    "qrcode": "^1.5.4",
+    "sharp": "^0.35.5",
     "web-push": "^4.0.0",
     "ws": "^8.18.0"
   }

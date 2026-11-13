@@ -1,0 +1,2089 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#eef2ff">
+<title>悄悄 · 悄无声息的对话</title>
+<style>
+
+:root{
+  /* 3x-ui 配色（取自它自己的 login css） */
+  --bg:#0d1117;
+  --bg2:#1c1e22;
+  --text:#ffffffeb;
+  --text2:#ffffff8c;
+  --text3:rgba(255,255,255,.44);
+  --text4:rgba(255,255,255,.26);
+  --line:#ffffff1a;
+  --line2:rgba(255,255,255,.07);
+  --card:#1c1e248c;
+  --card2:rgba(255,255,255,.06);
+  --blob-1:#60a5fa6b;
+  --blob-2:#3b82f66b;
+  --blob-3:#2563eb59;
+  --blob-4:#fb923c2e;
+  --blob-5:#818cf84d;
+  --grid-color:#ffffff0a;
+  --page-bg:radial-gradient(at 25% 20%,#152038 0%,#0d1117 60%);
+  --glow1:#3b4a8f;
+  --glow2:#5b3fa8;
+  --mark1:#6366f1;
+  --mark2:#8b5cf6;
+  --mark3:#a855f7;
+  --branch:#6366f1;
+  --branch2:#8b5cf6;
+  --brand:rgba(167,139,250,.95);
+  --brand2:rgba(139,92,246,.9);
+  --brandBg:rgba(139,92,246,.13);
+  --brandBd:rgba(139,92,246,.25);
+  --hintBg:rgba(251,191,36,.06);
+  --hintBd:rgba(251,191,36,.14);
+  --hintTx:rgba(252,211,77,.78);
+  --noise:0;
+  --markShadow:0 20px 60px -12px rgba(109,86,246,.65);
+  --btnShadow:0 14px 32px -8px rgba(99,102,241,.7);
+  --explainBg:linear-gradient(160deg,rgba(139,92,246,.07),rgba(139,92,246,.02));
+  --explainBd:rgba(139,92,246,.14);
+  --strong:rgba(196,181,253,.92);
+  --clLine:rgba(255,255,255,.07);
+  --dash:rgba(255,255,255,.11);
+}
+:root[data-theme="light"]{
+  --bg:#eef2ff;
+  --bg2:#fff;
+  --text:#000000e0;
+  --text2:#0000008c;
+  --text3:rgba(0,0,0,.5);
+  --text4:rgba(0,0,0,.34);
+  --line:#fff9;
+  --line2:rgba(0,0,0,.06);
+  --card:#ffffffb8;
+  --card2:rgba(255,255,255,.75);
+  --blob-1:#6366f18c;
+  --blob-2:#ec489980;
+  --blob-3:#14b8a666;
+  --blob-4:#fbbf2459;
+  --blob-5:#38bdf866;
+  --grid-color:#6366f10f;
+  --page-bg:linear-gradient(135deg,#eef2ff 0%,#fdf2f8 50%,#ecfeff 100%);
+  --glow1:#a5b4fc;
+  --glow2:#c4b5fd;
+  --mark1:#6366f1;
+  --mark2:#8b5cf6;
+  --mark3:#a855f7;
+  --brand:#5b48e8;
+  --brand2:#6d4ce0;
+  --brandBg:rgba(109,92,247,.1);
+  --brandBd:rgba(109,92,247,.22);
+  --hintBg:#fef8e7;
+  --hintBd:#f0dca0;
+  --hintTx:#7a5a00;
+  --noise:0;
+  --markShadow:0 16px 40px -10px rgba(109,86,246,.42);
+  --btnShadow:0 10px 22px -8px rgba(99,102,241,.42);
+  --explainBg:linear-gradient(135deg,rgba(99,102,241,.07),rgba(168,85,247,.05) 45%,rgba(14,165,233,.06));
+  --explainBd:rgba(139,92,246,.18);
+  --strong:#6d5cf7;
+  --clLine:rgba(16,20,32,.08);
+  --dash:rgba(16,20,32,.14);
+}
+
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Helvetica Neue",Arial,sans-serif;
+  background:var(--page-bg);color:var(--text);min-height:100vh;overflow-x:hidden;
+  transition:background .32s ease,color .32s ease;
+  -webkit-font-smoothing:antialiased;
+}
+.bg{position:fixed;top:0;right:0;bottom:0;left:0;z-index:0;pointer-events:none;overflow:hidden}
+.bg i{position:absolute;border-radius:50%;filter:blur(100px)}
+.bg i:nth-child(1){
+  width:70vw;max-width:900px;height:70vw;max-height:900px;top:-25vw;left:-20vw;
+  background:radial-gradient(circle,var(--blob-1) 0%,transparent 65%);
+  animation:blobA 24s ease-in-out infinite alternate;
+}
+.bg i:nth-child(2){
+  width:70vw;max-width:900px;height:70vw;max-height:900px;bottom:-25vw;right:-20vw;
+  background:radial-gradient(circle,var(--blob-2) 0%,transparent 65%);
+  animation:blobB 30s ease-in-out infinite alternate;
+}
+.bg i:nth-child(3){
+  width:50vw;max-width:700px;height:50vw;max-height:700px;top:30%;left:50%;
+  background:radial-gradient(circle,var(--blob-3) 0%,transparent 65%);
+  animation:blobC 36s ease-in-out infinite alternate;
+}
+.bg i:nth-child(4){
+  width:35vw;max-width:500px;height:35vw;max-height:500px;top:10%;right:15%;
+  background:radial-gradient(circle,var(--blob-4) 0%,transparent 65%);
+  animation:blobD 28s ease-in-out infinite alternate;
+}
+.bg i:nth-child(5){
+  width:35vw;max-width:500px;height:35vw;max-height:500px;bottom:5%;left:10%;
+  background:radial-gradient(circle,var(--blob-5) 0%,transparent 65%);
+  animation:blobE 32s ease-in-out infinite alternate;
+}
+@keyframes blobA{from{transform:translate(0,0) scale(1)}to{transform:translate(80px,60px) scale(1.18)}}
+@keyframes blobB{from{transform:translate(0,0) scale(1)}to{transform:translate(-90px,70px) scale(1.12)}}
+@keyframes blobC{from{transform:translate(-50%,0) scale(1)}to{transform:translate(-58%,50px) scale(1.15)}}
+@keyframes blobD{from{transform:translate(0,0) scale(1)}to{transform:translate(-50px,70px) scale(1.2)}}
+@keyframes blobE{from{transform:translate(0,0) scale(1)}to{transform:translate(60px,-50px) scale(1.1)}}
+
+/* 网格 */
+.bg::before{
+  content:'';position:absolute;top:0;right:0;bottom:0;left:0;
+  background-image:
+    linear-gradient(var(--grid-color) 1px,transparent 1px),
+    linear-gradient(90deg,var(--grid-color) 1px,transparent 1px);
+  background-size:56px 56px;
+  -webkit-mask-image:radial-gradient(ellipse at center,#000 20%,transparent 75%);
+  mask-image:radial-gradient(ellipse at center,#000 20%,transparent 75%);
+}
+/* 暗角 */
+.bg::after{
+  content:'';position:absolute;top:0;right:0;bottom:0;left:0;
+  background:radial-gradient(ellipse at center,transparent 25%,rgba(0,0,0,.5) 100%);
+}
+:root[data-theme="light"] .feat-ico{
+  filter:drop-shadow(0 1px 1px rgba(0,0,0,.06));
+}
+:root[data-theme="light"] .bg::after{
+  background:radial-gradient(ellipse at center,transparent 30%,rgba(0,0,0,.04) 100%);
+}
+.lang-toggle{
+  position:fixed;top:calc(14px + env(safe-area-inset-top));right:64px;z-index:50;
+  height:42px;padding:0 13px;border-radius:13px;border:1px solid var(--line);
+  background:var(--card);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;
+  display:grid;place-items:center;letter-spacing:.03em;
+  transition:background .25s,border-color .25s,transform .2s,color .25s;
+  font-family:inherit;
+}
+.lang-toggle:active{transform:scale(.94)}
+.lang-toggle:hover{border-color:var(--brandBd);color:var(--text)}
+
+.theme-toggle{
+  position:fixed;top:calc(14px + env(safe-area-inset-top));right:14px;z-index:50;
+  width:42px;height:42px;border-radius:13px;border:1px solid var(--line);
+  background:var(--card);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  display:grid;place-items:center;cursor:pointer;
+  transition:background .25s,border-color .25s,transform .2s;
+}
+.theme-toggle:active{transform:scale(.94)}
+.theme-toggle:hover{border-color:var(--brandBd)}
+.theme-toggle svg{width:19px;height:19px;stroke:var(--text2);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.theme-toggle .i-sun{display:none}
+.theme-toggle .i-moon{display:block}
+/* 亮色模式下卡片加一层淡彩渐变，别一整片白 */
+:root[data-theme="light"] .qr-row{
+  background:linear-gradient(135deg,rgba(99,102,241,.05),rgba(14,165,233,.04));
+  border-color:rgba(99,102,241,.14);
+}
+:root[data-theme="light"] .feat-row{
+  border-bottom:0;
+}
+:root[data-theme="light"] .feat-row+.feat-row::before{
+  background:linear-gradient(90deg,rgba(99,102,241,.14),transparent);
+}
+:root[data-theme="light"] .step+.step::before{
+  background:linear-gradient(90deg,rgba(14,165,233,.14),transparent);
+}
+:root[data-theme="light"] .cl-item+.cl-item::before{
+  background:linear-gradient(90deg,rgba(168,85,247,.14),transparent);
+}
+:root[data-theme="light"] .card-inner{
+  background:linear-gradient(165deg,#ffffff 0%,#fbfaff 55%,#f8f9ff 100%);
+}
+:root[data-theme="light"] .ver{
+  background:#fff;
+  border-color:rgba(99,102,241,.12);
+}
+:root[data-theme="light"] .ver:hover{
+  border-color:rgba(99,102,241,.3);
+  background:linear-gradient(135deg,rgba(99,102,241,.05),rgba(168,85,247,.04));
+}
+/* 亮色下版本标签保持鲜艳，只把浅色的那几个调深 */
+/* 亮色下品牌字渐变要深一点才看得清 */
+:root[data-theme="light"] .brand{
+  background:linear-gradient(180deg,#1e2233 0%,#5b48e8 120%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+/* 亮色下分割线用彩色 */
+:root[data-theme="light"] .rule{
+  background:linear-gradient(90deg,transparent,rgba(99,102,241,.75),rgba(168,85,247,.6),transparent);
+}
+:root[data-theme="light"] .foot-line{
+  background:linear-gradient(90deg,transparent,rgba(99,102,241,.35),transparent);
+}
+
+:root[data-theme="light"] .theme-toggle .i-sun{display:block}
+:root[data-theme="light"] .theme-toggle .i-moon{display:none}
+
+.grain{
+  position:fixed;top:0;right:0;bottom:0;left:0;z-index:1;pointer-events:none;opacity:var(--noise);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.wrap{position:relative;z-index:2;width:100%;max-width:520px;margin:0 auto;padding:0 22px}
+
+.hero{padding:11vh 0 0;text-align:center;animation:rise .9s cubic-bezier(.16,1,.3,1) both}
+.mark{
+  width:92px;height:92px;border-radius:28px;margin:0 auto 24px;position:relative;
+  background:linear-gradient(145deg,var(--mark1) 0%,var(--mark2) 48%,var(--mark3) 100%);
+  display:grid;place-items:center;
+  box-shadow:
+    var(--markShadow),
+    0 0 0 1px rgba(255,255,255,.1) inset,
+    0 2px 0 rgba(255,255,255,.22) inset;
+}
+.mark::after{
+  content:'';position:absolute;left:-14%;top:-20%;width:72%;height:62%;border-radius:50%;
+  background:radial-gradient(circle,rgba(255,255,255,.5),transparent 68%);pointer-events:none;
+}
+.mark svg{width:46px;height:46px;position:relative;z-index:1}
+.brand{
+  font-size:36px;font-weight:800;letter-spacing:.14em;line-height:1;
+  background:linear-gradient(180deg,var(--text) 0%,var(--text3) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  padding-left:.14em;
+}
+.slogan{
+  font-size:13.5px;color:var(--text3);margin-top:14px;letter-spacing:.42em;
+  padding-left:.42em;
+}
+.e2ee-badge{
+  display:inline-flex;align-items:center;gap:10px;
+  margin-top:26px;padding:13px 26px 13px 22px;
+  border-radius:999px;position:relative;
+  background:linear-gradient(135deg,rgba(16,185,129,.16),rgba(6,182,212,.13) 55%,rgba(99,102,241,.16));
+  border:1.5px solid rgba(16,185,129,.42);
+  color:#10b981;
+  font-size:14.5px;font-weight:600;letter-spacing:.02em;
+  box-shadow:0 0 0 5px rgba(16,185,129,.07),0 10px 30px -10px rgba(16,185,129,.6);
+  animation:e2eePulse 3.2s ease-in-out infinite;
+}
+.e2ee-badge{
+  cursor:pointer;text-decoration:none;
+  transition:transform .2s,border-color .2s,filter .2s;
+}
+.e2ee-badge:hover{
+  transform:translateY(-2px);
+  border-color:rgba(16,185,129,.7);
+  filter:brightness(1.08);
+}
+.e2ee-badge:active{transform:translateY(0) scale(.98)}
+.e2ee-badge .e2ee-arrow{
+  flex:none;opacity:.7;margin-left:-2px;
+  transition:transform .2s,opacity .2s;
+}
+.e2ee-badge:hover .e2ee-arrow{transform:translateX(3px);opacity:1}
+.e2ee-badge svg{flex:none;opacity:.95;width:19px;height:19px}
+.e2ee-badge b{font-size:15.5px;letter-spacing:.1em;font-weight:800}
+.e2ee-sep{width:1.5px;height:15px;background:currentColor;opacity:.28;flex:none}
+.e2ee-badge .e2ee-dot{
+  position:absolute;left:9px;top:50%;transform:translateY(-50%);
+  width:7px;height:7px;border-radius:50%;background:#10b981;
+  box-shadow:0 0 0 0 rgba(16,185,129,.7);
+  animation:e2eeDot 2.2s ease-out infinite;
+}
+@keyframes e2eePulse{
+  0%,100%{box-shadow:0 0 0 4px rgba(16,185,129,.06),0 6px 20px -8px rgba(16,185,129,.5)}
+  50%{box-shadow:0 0 0 7px rgba(16,185,129,.03),0 8px 26px -8px rgba(16,185,129,.65)}
+}
+@keyframes e2eeDot{
+  0%{box-shadow:0 0 0 0 rgba(16,185,129,.7)}
+  70%{box-shadow:0 0 0 7px rgba(16,185,129,0)}
+  100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}
+}
+
+/* 亮色模式下调深一点 */
+:root[data-theme="light"] .e2ee-badge{
+  background:linear-gradient(135deg,rgba(5,150,105,.1),rgba(8,145,178,.08) 55%,rgba(79,70,229,.1));
+  border-color:rgba(5,150,105,.32);
+  color:#047857;
+}
+:root[data-theme="light"] .e2ee-badge .e2ee-dot{background:#047857}
+
+.rule{
+  width:44px;height:1px;margin:22px auto 0;
+  background:linear-gradient(90deg,transparent,rgba(139,92,246,.8),transparent);
+}
+
+.card{
+  margin-top:44px;position:relative;border-radius:26px;padding:1px;
+  background:linear-gradient(160deg,rgba(255,255,255,.15),rgba(255,255,255,.03) 42%,rgba(139,92,246,.18));
+  animation:rise .9s cubic-bezier(.16,1,.3,1) .1s both;
+}
+.card-inner{
+  border-radius:25px;padding:26px 22px;
+  background:var(--card);
+  backdrop-filter:blur(24px) saturate(160%);
+  -webkit-backdrop-filter:blur(24px) saturate(160%);
+  border:1px solid var(--line);
+  transition:background .32s ease,border-color .32s ease;
+}
+.btn{
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  width:100%;padding:17px;border-radius:16px;text-decoration:none;
+  font-size:16.5px;font-weight:600;color:#fff;letter-spacing:.02em;
+  background:linear-gradient(135deg,var(--branch),var(--branch2));
+  box-shadow:
+    var(--btnShadow),
+    0 1px 0 rgba(255,255,255,.25) inset;
+  transition:transform .2s cubic-bezier(.16,1,.3,1),box-shadow .2s ease;
+  position:relative;overflow:hidden;
+}
+.btn::after{
+  content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);
+  animation:shimmer 3.2s ease-in-out infinite;
+}
+@keyframes shimmer{0%,72%{left:-100%}100%{left:130%}}
+.btn:active{transform:scale(.972);box-shadow:0 6px 18px -6px rgba(99,102,241,.5)}
+.btn svg{width:19px;height:19px}
+
+.meta{
+  display:flex;align-items:center;justify-content:center;gap:0;margin-top:17px;
+  font-size:12px;color:var(--text3);letter-spacing:.02em;
+  flex-wrap:wrap;
+}
+.meta span{padding:0 11px;position:relative}
+.meta span+span::before{
+  content:'';position:absolute;left:0;top:50%;width:3px;height:3px;border-radius:50%;
+  background:var(--text4);transform:translateY(-50%);
+}
+
+.plat{display:flex;gap:11px;margin-top:10px;flex-wrap:wrap}
+.plat-item{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;
+  color:var(--text3);font-weight:500;white-space:nowrap}
+.plat-item svg{flex:none;opacity:.85}
+
+.web-now{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  margin-top:14px;padding:13px;border-radius:14px;text-decoration:none;
+  font-size:14px;font-weight:600;color:var(--text2);
+  border:1px solid var(--line);background:var(--card);
+  transition:border-color .2s,color .2s,background .2s;
+}
+.web-now:hover{border-color:var(--brandBd);color:var(--text);background:var(--card2)}
+.web-now svg{width:16px;height:16px;flex:none}
+
+.hint{
+  margin-top:20px;padding:13px 15px;border-radius:13px;font-size:12px;line-height:1.75;
+  background:var(--hintBg);border:1px solid var(--hintBd);
+  color:var(--hintTx);
+}
+
+.sec{margin-top:46px;animation:rise .9s cubic-bezier(.16,1,.3,1) .2s both}
+.sec-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.sec-head i{font-style:normal;font-size:11px;font-weight:700;color:var(--brand2);letter-spacing:.1em}
+.sec-head b{font-size:15.5px;font-weight:600;color:var(--text);letter-spacing:.02em}
+.sec-head em{
+  flex:1;height:1px;font-style:normal;
+  background:linear-gradient(90deg,var(--dash),transparent);
+}
+
+.qr-row{display:flex;align-items:center;gap:14px;padding:15px;border-radius:16px;
+  background:var(--card);border:1px solid var(--line);transition:background .32s ease}
+.qr-box{width:84px;height:84px;border-radius:12px;background:var(--card2);
+  display:grid;place-items:center;flex:none;padding:8px;transition:background .32s ease}
+.qr-box img{width:100%;height:100%;display:block}
+.qr-box .qr-light{display:none}
+:root[data-theme="light"] .qr-box{background:#fff;border:1px solid rgba(99,102,241,.16)}
+:root[data-theme="light"] .qr-box .qr-dark{display:none}
+:root[data-theme="light"] .qr-box .qr-light{display:block}
+.qr-t{font-size:14.5px;font-weight:600;color:var(--text)}
+.qr-d{font-size:11.5px;color:var(--text3);margin-top:4px;line-height:1.55}
+
+.steps{margin-top:6px}
+.step{display:flex;gap:14px;padding:15px 2px;position:relative}
+.step+.step::before{content:'';position:absolute;top:0;left:41px;right:0;height:1px;
+  background:linear-gradient(90deg,var(--clLine),transparent)}
+.step-n{width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font-size:12px;font-weight:700;color:#fff;
+  border:0}
+.step:nth-child(1) .step-n{background:linear-gradient(135deg,#4f46e5,#6d28d9)}
+.step:nth-child(2) .step-n{background:linear-gradient(135deg,#0369a1,#0e7490)}
+.step:nth-child(3) .step-n{background:linear-gradient(135deg,#b45309,#be123c)}
+.step-t{font-size:14.5px;font-weight:600;color:var(--text)}
+.step-d{font-size:12.5px;color:var(--text3);margin-top:5px;line-height:1.65}
+
+.feat{margin-top:4px}
+.feat-row{display:flex;gap:15px;padding:17px 2px;position:relative}
+.feat-row+.feat-row::before{
+  content:'';position:absolute;top:0;left:47px;right:0;height:1px;
+  background:linear-gradient(90deg,rgba(255,255,255,.07),transparent);
+}
+.feat-ico{
+  width:32px;height:32px;border-radius:10px;flex:none;display:grid;place-items:center;
+  font-size:16px;
+  background:var(--brandBg);
+  border:1px solid var(--brandBd);transition:background .32s ease,border-color .32s ease;
+}
+/* 每个功能一个颜色 —— 亮色模式下来点颜色，不要一片灰 */
+.feat-row:nth-child(1) .feat-ico{background:rgba(99,102,241,.14);border-color:rgba(99,102,241,.26)}
+.feat-row:nth-child(2) .feat-ico{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.24)}
+.feat-row:nth-child(3) .feat-ico{background:rgba(244,114,182,.14);border-color:rgba(244,114,182,.26)}
+.feat-row:nth-child(4) .feat-ico{background:rgba(14,165,233,.14);border-color:rgba(14,165,233,.26)}
+.feat-row:nth-child(5) .feat-ico{background:rgba(245,158,11,.15);border-color:rgba(245,158,11,.27)}
+.feat-row:nth-child(6) .feat-ico{background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.26)}
+.feat-row:nth-child(7) .feat-ico{background:rgba(139,92,246,.14);border-color:rgba(139,92,246,.26)}
+.feat-row:nth-child(8) .feat-ico{background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.26)}
+.feat-row:nth-child(9) .feat-ico{background:rgba(236,72,153,.13);border-color:rgba(236,72,153,.24)}
+.feat-row:nth-child(10) .feat-ico{background:rgba(168,85,247,.14);border-color:rgba(168,85,247,.26)}
+.feat-row:nth-child(11) .feat-ico{background:rgba(234,179,8,.16);border-color:rgba(234,179,8,.28)}
+.feat-row:nth-child(12) .feat-ico{background:rgba(6,182,212,.14);border-color:rgba(6,182,212,.26)}
+.feat-t{font-size:14.5px;font-weight:600;color:var(--text);letter-spacing:.01em}
+.feat-t em{
+  font-style:normal;font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;
+  margin-left:7px;vertical-align:1px;
+  background:var(--brandBg);color:var(--brand);
+}
+.feat-d{font-size:12.5px;color:var(--text3);margin-top:6px;line-height:1.7}
+
+.explain{padding:4px 2px}
+.explain p{font-size:13px;color:var(--text2);line-height:1.9;margin-bottom:12px}
+.explain p b{color:var(--strong);font-weight:600}
+.explain-fine{font-size:12px!important;color:var(--text4)!important;
+  padding-top:12px;border-top:1px solid var(--line);margin-top:4px!important}
+
+.vers{margin-top:4px;display:flex;flex-wrap:wrap;gap:9px}
+.ver{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:10px 15px;border-radius:12px;
+  border:1px solid transparent;
+  font-size:13px;text-decoration:none;position:relative;
+  transition:transform .2s,filter .2s;
+}
+.ver:hover{transform:translateY(-2px);filter:brightness(1.08)}
+.ver b{font-weight:700;font-size:13.5px;letter-spacing:.01em}
+.ver i{font-style:normal;font-size:11px;opacity:.72;color:inherit}
+
+/* 每个版本一个渐变 */
+.ver:nth-child(1){background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;box-shadow:0 6px 18px -6px rgba(99,102,241,.55)}
+.ver:nth-child(2){background:linear-gradient(135deg,#0369a1,#0e7490);color:#fff;box-shadow:0 6px 18px -6px rgba(14,165,233,.5)}
+.ver:nth-child(3){background:linear-gradient(135deg,#047857,#15803d);color:#fff;box-shadow:0 6px 18px -6px rgba(16,185,129,.5)}
+.ver:nth-child(4){background:linear-gradient(135deg,#b45309,#c2410c);color:#fff;box-shadow:0 6px 18px -6px rgba(245,158,11,.5)}
+.ver:nth-child(5){background:linear-gradient(135deg,#be185d,#be123c);color:#fff;box-shadow:0 6px 18px -6px rgba(236,72,153,.5)}
+.ver:nth-child(6){background:linear-gradient(135deg,#6d28d9,#7e22ce);color:#fff;box-shadow:0 6px 18px -6px rgba(139,92,246,.5)}
+.ver:nth-child(7){background:linear-gradient(135deg,#0f766e,#115e59);color:#fff;box-shadow:0 6px 18px -6px rgba(20,184,166,.5)}
+.ver:nth-child(8){background:linear-gradient(135deg,#be123c,#9f1239);color:#fff;box-shadow:0 6px 18px -6px rgba(244,63,94,.5)}
+.ver:nth-child(9){background:linear-gradient(135deg,#4d7c0f,#3f6212);color:#fff;box-shadow:0 6px 18px -6px rgba(132,204,22,.48)}
+.ver:nth-child(10){background:linear-gradient(135deg,#0e7490,#155e75);color:#fff;box-shadow:0 6px 18px -6px rgba(6,182,212,.5)}
+.ver:nth-child(11){background:linear-gradient(135deg,#7e22ce,#6b21a8);color:#fff;box-shadow:0 6px 18px -6px rgba(168,85,247,.5)}
+.ver:nth-child(n+12){background:linear-gradient(135deg,#c2410c,#9a3412);color:#fff;box-shadow:0 6px 18px -6px rgba(249,115,22,.5)}
+
+.changelog{margin-top:4px}
+.cl-item{display:flex;gap:14px;align-items:flex-start;padding:16px 2px 16px 0;position:relative}
+.cl-item+.cl-item::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,var(--clLine),transparent)}
+.cl-v{flex:none;font-size:13px;font-weight:700;color:var(--brand2);
+  letter-spacing:.02em;padding-top:1px;background:none}
+.cl-item.old .cl-v{color:var(--text4)}
+.cl-d{font-size:11px;color:var(--text3);margin-bottom:8px;letter-spacing:.02em}
+.cl-l{font-size:13px;color:var(--text2);line-height:1.8;position:relative;padding-left:12px}
+.cl-l::before{content:'';position:absolute;left:0;top:.72em;width:3px;height:3px;border-radius:50%;
+  background:var(--brand2)}
+.cl-item.old .cl-l{color:var(--text4)}
+.cl-item.old .cl-l::before{background:var(--text4)}
+
+
+.foot{
+  margin-top:44px;padding-bottom:56px;text-align:center;
+  animation:rise .9s cubic-bezier(.16,1,.3,1) .3s both;
+}
+.foot-line{
+  width:36px;height:1px;margin:0 auto 20px;
+  background:linear-gradient(90deg,transparent,var(--dash),transparent);
+}
+.foot-t{font-size:12px;color:var(--text4);line-height:2;letter-spacing:.04em}
+.foot-t b{font-weight:500;color:var(--text3)}
+
+@keyframes rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:translateY(0)}}
+
+
+/* ==========================================================================
+   电脑端（≥ 780px）：放宽容器 + 功能 4 列网格 + 其他区块两列
+   手机上仍然是单栏，只显示前 6 个功能
+   ========================================================================== */
+
+/* 手机：只显示前 6 个功能 */
+.feat-row:nth-child(n+7){display:none}
+
+@media (min-width: 860px){
+  .wrap{max-width:1080px;padding:0 32px}
+
+  /* 英雄区：稍微收窄居中 */
+  .hero{max-width:620px;margin:0 auto;padding:13vh 0 0}
+  .mark{width:104px;height:104px;border-radius:32px;margin-bottom:28px}
+  .mark svg{width:52px;height:52px}
+  .brand{font-size:52px;letter-spacing:.16em;padding-left:.16em}
+  .slogan{font-size:14px;margin-top:18px;letter-spacing:.5em;padding-left:.5em}
+  .rule{width:60px;margin-top:28px}
+
+  /* 下载卡：收窄，别撑满 */
+  .card{max-width:480px;margin:56px auto 0}
+  .card-inner{padding:30px 28px}
+  .btn{padding:19px;font-size:17px}
+  .meta{font-size:12.5px}
+  .hint{font-size:12.5px;line-height:1.8;padding:15px 17px}
+
+  /* 二维码：收窄居中，跟下载卡同宽 */
+  .sec:first-of-type > .qr-row{max-width:480px;margin:20px auto 0}
+
+  /* 所有区块：放宽 */
+  .sec{margin-top:76px}
+
+  /* 三步：三列 */
+  .steps{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:28px;
+    margin-top:20px;
+  }
+  .step{
+    display:block;padding:24px 22px;border-radius:16px;
+    background:var(--card);
+    border:1px solid var(--line);transition:background .32s,border-color .32s;
+  }
+  .step+.step::before{display:none}
+  .step-n{margin-bottom:14px}
+  .step-t{font-size:15.5px;margin-bottom:7px}
+  .step-d{font-size:13px;line-height:1.75}
+
+  /* 功能：4 列卡片网格，12 个全显示 */
+  .feat{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:16px;
+    margin-top:20px;
+  }
+  .feat-row:nth-child(n+7){display:flex}   /* 电脑上全显示 */
+
+  .feat-row{
+    display:flex;gap:13px;align-items:flex-start;
+    padding:18px 18px;border-radius:16px;
+    background:var(--card);
+    border:1px solid var(--line);
+    transition:background .25s,border-color .25s,transform .25s;
+  }
+  .feat-row .feat-ico{margin-bottom:0}
+  .feat-row+.feat-row::before{display:none}
+  .feat-ico{
+    width:40px;height:40px;border-radius:12px;font-size:19px;
+    margin-bottom:14px;
+  }
+  .feat-t{font-size:14.5px;line-height:1.45}
+  .feat-t em{font-size:9.5px}
+  .feat-d{font-size:12.5px;line-height:1.75;margin-top:8px}
+
+  /* 区块标题放大 */
+  .sec-head b{font-size:18px}
+  .sec-head i{font-size:11.5px}
+  .sec-head{margin-bottom:4px}
+
+  /* 加密说明：窄居中，做成一块 */
+  .explain{
+    max-width:720px;margin:20px auto 0;
+    padding:32px 36px;border-radius:20px;
+    background:var(--explainBg);
+    border:1px solid var(--explainBd);
+  }
+  .explain p{font-size:14.5px;line-height:1.95;margin-bottom:16px}
+  .explain-fine{font-size:12.5px!important;padding-top:16px}
+
+  /* 历史版本：横向排，不要一列 */
+  .vers{gap:10px}
+  .ver{padding:10px 16px;font-size:13.5px}
+
+  /* 更新日志：两列 */
+  .changelog{
+    display:grid;grid-template-columns:repeat(2,1fr);gap:0 56px;
+    margin-top:20px;
+  }
+  .cl-item{padding:20px 2px}
+  .cl-item+.cl-item::before{display:none}
+  .cl-item:nth-child(n+3){border-top:1px solid var(--line)}
+  .cl-item:nth-child(n+3)::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+    background:linear-gradient(90deg,var(--clLine),transparent)}
+  .cl-v{width:56px;font-size:13.5px}
+  .cl-l{font-size:13px;line-height:1.9}
+
+  /* 底部入口 */
+  .web{max-width:480px;margin:60px auto 0}
+
+  /* 页脚 */
+  .foot{margin-top:64px;padding-bottom:72px}
+  .foot-t{font-size:12.5px;letter-spacing:.06em}
+}
+
+@media (min-width: 1180px){
+  .wrap{max-width:1180px}
+  .feat{gap:18px}
+  .feat-row{padding:26px 22px}
+  .brand{font-size:58px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+
+.tech-grid{
+  display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:20px;
+}
+.tech{
+  padding:18px;border-radius:16px;
+  background:var(--card);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid var(--line);
+  transition:background .3s,border-color .3s,transform .2s;
+}
+.tech:hover{transform:translateY(-2px);border-color:rgba(16,185,129,.3)}
+.tech-ico{
+  width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+  font-size:16px;margin-bottom:12px;
+  background:linear-gradient(135deg,rgba(16,185,129,.16),rgba(6,182,212,.12));
+  border:1px solid rgba(16,185,129,.24);
+}
+.tech-t{font-size:14px;font-weight:700;color:var(--text);letter-spacing:.01em}
+.tech-d{font-size:12.5px;color:var(--text3);line-height:1.7;margin-top:6px}
+
+.tech-note{
+  margin-top:16px;padding:18px 20px;border-radius:16px;
+  background:linear-gradient(135deg,rgba(99,102,241,.07),rgba(16,185,129,.05));
+  border:1px solid rgba(99,102,241,.16);
+}
+.tech-note-h{
+  font-size:14px;font-weight:700;color:var(--brand);margin-bottom:12px;
+  display:flex;align-items:center;gap:8px;line-height:1.5;
+}
+.tech-note-h::before{content:'';width:3px;height:13px;border-radius:2px;background:var(--brand)}
+.tech-note-b{font-size:12.5px;color:var(--text2);line-height:1.85}
+.tech-note-b b{color:var(--text);font-weight:600}
+
+@media (min-width: 780px){
+  .tech-grid{grid-template-columns:repeat(4,1fr);gap:14px}
+}
+@media (max-width: 420px){
+  .tech-grid{grid-template-columns:1fr}
+}
+
+
+/* 数据流向图 */
+.flow{
+  display:flex;align-items:stretch;gap:10px;margin-top:20px;
+  padding:20px 16px;border-radius:18px;
+  background:var(--card);border:1px solid var(--line);
+}
+.flow-col{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px}
+.flow-node{
+  width:100%;padding:14px 8px;border-radius:13px;text-align:center;
+  border:1px solid var(--line);
+}
+.flow-node.you{background:linear-gradient(135deg,rgba(99,102,241,.14),rgba(139,92,246,.08));border-color:rgba(99,102,241,.3)}
+.flow-node.srv{background:linear-gradient(135deg,rgba(148,163,184,.12),rgba(100,116,139,.08));border-color:rgba(148,163,184,.25)}
+.flow-node.peer{background:linear-gradient(135deg,rgba(16,185,129,.14),rgba(6,182,212,.08));border-color:rgba(16,185,129,.3)}
+.flow-ico{font-size:20px;line-height:1}
+.flow-t{font-size:12.5px;font-weight:700;color:var(--text);margin-top:6px}
+.flow-step{
+  width:100%;text-align:center;font-size:11px;color:var(--text3);
+  padding:6px 4px;border-radius:8px;background:var(--card2);line-height:1.5;
+}
+.flow-step.hl{color:var(--strong);background:var(--brandBg);font-weight:600}
+.flow-step.bad{color:#e5484d;background:rgba(229,72,77,.1);font-weight:600}
+.flow-arrow{
+  flex:none;width:56px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:5px;
+  color:var(--text4);font-size:11px;
+}
+.flow-arrow span{font-size:14px;letter-spacing:-2px;color:var(--brand2)}
+.flow-arrow em{font-style:normal;font-size:10px;white-space:nowrap}
+.flow-note{
+  margin-top:14px;padding:14px 16px;border-radius:12px;
+  background:var(--card2);font-size:12.5px;color:var(--text2);line-height:1.8;
+}
+.flow-note b{color:var(--text)}
+
+/* 对比表 */
+.cmp{margin-top:20px;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:var(--card)}
+.cmp-row{
+  display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;
+  border-bottom:1px solid var(--line);
+}
+.cmp-row:last-child{border-bottom:0}
+.cmp-head{background:var(--card2)}
+.cmp-c{
+  padding:12px 8px;text-align:center;font-size:12.5px;color:var(--text2);
+  border-left:1px solid var(--line);
+}
+.cmp-c1{padding:12px 14px;font-size:12.5px;color:var(--text2)}
+.cmp-head .cmp-c{font-weight:700;color:var(--text);font-size:13px}
+.cmp-head .cmp-c:nth-child(2){color:var(--brand)}
+.yes{color:#10b981;font-weight:700;font-size:15px}
+.no{color:#e5484d;font-weight:700;font-size:15px}
+.part{font-size:11px;color:var(--text3);background:var(--card2);padding:2px 7px;border-radius:5px}
+.cmp-note{
+  margin-top:14px;padding:14px 16px;border-radius:12px;
+  background:var(--card2);font-size:12px;color:var(--text3);line-height:1.8;
+}
+.cmp-note b{color:var(--text2)}
+
+@media (max-width: 640px){
+  .flow{flex-direction:column;gap:8px}
+  .flow-arrow{width:100%;flex-direction:row;gap:8px;padding:4px 0}
+  .flow-arrow span{transform:rotate(90deg)}
+  .cmp-row{grid-template-columns:1.3fr .9fr .9fr .9fr}
+  .cmp-c1,.cmp-c{padding:10px 6px;font-size:11.5px}
+  .cmp-head .cmp-c{font-size:12px}
+}
+
+
+/* 安全建议 */
+.tips{margin-top:16px}
+.tip-row{display:flex;gap:14px;padding:16px 2px;position:relative}
+.tip-row+.tip-row::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,var(--clLine),transparent)}
+.tip-ico{width:36px;height:36px;border-radius:11px;flex:none;display:grid;place-items:center;
+  font-size:16px;color:#fff}
+.tip-t{font-size:14px;font-weight:600;color:var(--text)}
+.tip-d{font-size:12.5px;color:var(--text3);line-height:1.75;margin-top:5px}
+
+/* FAQ */
+.faq{margin-top:16px}
+.faq details{
+  border-bottom:1px solid var(--line);
+  padding:0;
+}
+.faq details:last-child{border-bottom:0}
+.faq summary{
+  list-style:none;cursor:pointer;padding:15px 26px 15px 0;position:relative;
+  font-size:14px;font-weight:600;color:var(--text);line-height:1.6;
+}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{
+  content:'+';position:absolute;right:2px;top:50%;transform:translateY(-50%);
+  font-size:18px;font-weight:400;color:var(--brand2);transition:transform .2s;
+}
+.faq details[open] summary::after{content:'−'}
+.faq summary:hover{color:var(--brand)}
+.faq-a{
+  padding:0 20px 16px 0;font-size:13px;color:var(--text2);line-height:1.9;
+  animation:faqIn .22s ease both;
+}
+.faq-a b{color:var(--text);font-weight:600}
+.faq-a code{
+  font-family:ui-monospace,Menlo,monospace;font-size:12px;
+  padding:1px 6px;border-radius:5px;background:var(--card2);color:var(--brand);
+}
+@keyframes faqIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+/* 开发者说明 */
+.letter{margin-top:16px;padding:24px 22px;border-radius:18px;
+  background:var(--card);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid var(--line)}
+.letter-body p{font-size:13.5px;color:var(--text2);line-height:1.95;margin-bottom:14px}
+.letter-body p:last-of-type{margin-bottom:0}
+.letter-body b{color:var(--text);font-weight:600}
+.letter-sign{margin-top:18px!important;font-size:12.5px!important;color:var(--text4)!important;
+  text-align:right}
+
+.promise{margin-top:22px;padding-top:20px;border-top:1px solid var(--line)}
+.promise-h{font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px;
+  display:flex;align-items:center;gap:7px}
+.promise-h::before{content:'';width:3px;height:13px;border-radius:2px;background:#e5484d}
+.promise-list{display:grid;grid-template-columns:1fr;gap:9px}
+.promise-item{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--text2)}
+.promise-item .x{color:#e5484d;font-weight:700;font-size:13px;flex:none}
+
+@media (min-width: 780px){
+  .promise-list{grid-template-columns:repeat(2,1fr)}
+}
+
+
+/* ==========================================================================
+   统一卡片悬停效果：上浮 + 变亮 + 边框变色
+   （手机上不触发，只在有鼠标时生效）
+   ========================================================================== */
+@media (hover: hover) and (pointer: fine){
+  /* 下载卡 */
+  .card{
+    transition:transform .26s cubic-bezier(.16,1,.3,1),box-shadow .26s ease;
+  }
+  .card:hover{
+    transform:translateY(-3px);
+    box-shadow:0 28px 70px -20px rgba(99,102,241,.45);
+  }
+
+  /* 二维码行 */
+  .qr-row{
+    transition:background .24s,border-color .24s,transform .26s cubic-bezier(.16,1,.3,1),box-shadow .26s;
+  }
+  .qr-row:hover{
+    background:var(--card2);
+    border-color:var(--brandBd);
+    transform:translateY(-2px);
+    box-shadow:0 12px 30px -12px rgba(99,102,241,.3);
+  }
+
+  /* 三步的每一步 */
+  .step{
+    border-radius:14px;padding:14px 12px;margin:0 -12px;
+    transition:background .24s,transform .26s cubic-bezier(.16,1,.3,1);
+  }
+  .step:hover{
+    background:var(--card);
+    transform:translateY(-2px);
+  }
+
+  /* 技术卡（已有上浮，补阴影） */
+  .tech:hover{
+    box-shadow:0 14px 34px -14px rgba(16,185,129,.35);
+  }
+
+  /* 数据流节点 */
+  .flow-node{
+    transition:transform .26s cubic-bezier(.16,1,.3,1),box-shadow .26s;
+  }
+  .flow-node:hover{
+    transform:translateY(-3px);
+    box-shadow:0 12px 28px -12px rgba(0,0,0,.28);
+  }
+
+  /* 安全建议每一行 */
+  .tip-row{
+    border-radius:14px;padding:16px 12px;margin:0 -12px;
+    transition:background .24s,transform .26s cubic-bezier(.16,1,.3,1);
+  }
+  .tip-row:hover{
+    background:var(--card);
+    transform:translateY(-2px);
+  }
+
+  /* 开发者说明整块 */
+  .letter{
+    transition:background .24s,border-color .24s,transform .26s cubic-bezier(.16,1,.3,1),box-shadow .26s;
+  }
+  .letter:hover{
+    border-color:var(--brandBd);
+    transform:translateY(-2px);
+    box-shadow:0 16px 40px -18px rgba(99,102,241,.28);
+  }
+
+  /* 功能卡（02 它是什么）*/
+  .feat-row{
+    transition:background .24s,border-color .24s,transform .26s cubic-bezier(.16,1,.3,1),box-shadow .26s;
+  }
+  .feat-row:hover{
+    background:var(--card2);
+    border-color:var(--brandBd);
+    transform:translateY(-3px);
+    box-shadow:0 14px 34px -14px rgba(99,102,241,.42);
+  }
+  .feat-row:hover .feat-ico{
+    transform:scale(1.12);
+  }
+  .feat-ico{transition:transform .26s cubic-bezier(.16,1,.3,1)}
+
+  /* 对比表行 */
+  .cmp-row{
+    transition:background .2s;
+  }
+  .cmp-row:not(.cmp-head):hover{
+    background:var(--card2);
+  }
+
+  /* 历史版本徽章 */
+  .ver:hover{
+    transform:translateY(-3px) scale(1.02);
+    filter:brightness(1.12);
+  }
+
+  /* FAQ 条目 */
+  .faq summary{
+    transition:color .18s,padding-left .2s;
+  }
+  .faq summary:hover{
+    padding-left:6px;
+  }
+}
+
+
+/* Telegram 对比块 */
+.vs-tg{
+  margin-top:16px;padding-top:16px;border-top:1px solid var(--line);
+}
+.vs-tg-h{display:flex;align-items:center;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+.vs-badge{
+  font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;
+  background:linear-gradient(135deg,#4f46e5,#6d28d9);color:#fff;letter-spacing:.02em;
+  box-shadow:0 4px 12px -4px rgba(99,102,241,.5);
+}
+.vs-tg-h>span:last-child{font-size:13px;font-weight:600;color:var(--text)}
+.vs-tg-body{display:flex;flex-direction:column;gap:10px}
+.vs-line{display:flex;gap:12px;font-size:12.5px;line-height:1.8}
+.vs-k{
+  flex:none;width:74px;font-size:11.5px;font-weight:700;color:var(--text4);
+  padding-top:2px;
+}
+.vs-k.hl{color:var(--text4)}
+.vs-v{flex:1;color:var(--text2)}
+.vs-v b{color:var(--text);font-weight:600}
+.vs-concl{
+  margin-top:4px;padding:11px 14px;border-radius:10px;
+  background:var(--brandBg);border:1px solid var(--brandBd);
+  font-size:12.5px;color:var(--text2);line-height:1.7;
+}
+.vs-concl b{color:var(--text);font-weight:700}
+
+
+/* 二维码卡片补充内容 */
+.qr-steps{
+  display:flex;flex-direction:column;gap:7px;margin-top:14px;
+}
+.qr-step{
+  display:flex;align-items:center;gap:8px;
+  font-size:12px;color:var(--text3);
+}
+.qr-step i{
+  flex:none;width:17px;height:17px;border-radius:50%;
+  display:grid;place-items:center;font-style:normal;
+  font-size:10px;font-weight:700;
+  background:var(--brandBg);color:var(--brand);
+  border:1px solid var(--brandBd);
+}
+.qr-copy{
+  flex:none;display:flex;align-items:center;gap:6px;
+  padding:8px 13px;border-radius:9px;border:1px dashed var(--dash);
+  background:transparent;cursor:pointer;
+  font-size:11.5px;font-weight:600;color:var(--text2);
+  font-family:inherit;white-space:nowrap;
+  transition:border-color .2s,color .2s,background .2s;
+}
+.qr-copy:hover{border-color:var(--brandBd);color:var(--text);background:var(--card2)}
+.qr-copy:active{transform:scale(.98)}
+.qr-copy svg{width:14px;height:14px;flex:none}
+.qr-copy.done{color:#10b981;border-color:rgba(16,185,129,.4)}
+
+
+.qr-mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.qr-mid .qr-t{font-size:15px;font-weight:600;color:var(--text)}
+.qr-mid .qr-d{font-size:12px;color:var(--text3);line-height:1.6}
+.qr-mid .plat{margin-top:4px;gap:11px}
+
+.qr-steps{
+  flex:none;display:flex;flex-direction:column;gap:6px;
+  padding-left:16px;border-left:1px solid var(--line);
+}
+.qr-copy{
+  flex:none;align-self:center;
+  display:flex;align-items:center;gap:6px;
+  padding:9px 14px;border-radius:10px;border:1px dashed var(--dash);
+  background:transparent;cursor:pointer;
+  font-size:12px;font-weight:600;color:var(--text2);
+  font-family:inherit;white-space:nowrap;
+  transition:border-color .2s,color .2s,background .2s;
+}
+.qr-copy:hover{border-color:var(--brandBd);color:var(--text);background:var(--card2)}
+.qr-copy svg{width:13px;height:13px;flex:none}
+.qr-copy.done{color:#10b981;border-color:rgba(16,185,129,.4)}
+
+@media (max-width: 640px){
+  .qr-steps{
+    flex-direction:row;flex-wrap:wrap;gap:8px 14px;
+    padding-left:0;border-left:0;
+    border-top:1px solid var(--line);padding-top:12px;width:100%;
+  }
+  .qr-copy{width:100%;justify-content:center;margin-top:0}
+}
+
+
+/* 规格四格 */
+.qr-specs{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  padding:14px 0;
+}
+.spec{text-align:center;padding:0 6px;border-right:1px solid var(--line)}
+.spec:last-child{border-right:0}
+.spec-v{
+  font-size:15px;font-weight:700;color:var(--text);
+  letter-spacing:-.01em;line-height:1.3;
+}
+.spec-l{font-size:10.5px;color:var(--text3);margin-top:4px;line-height:1.5}
+
+/* 底部：三步 + 复制 */
+.qr-foot{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.qr-steps{display:flex;gap:16px;flex-wrap:wrap;flex:1}
+.qr-step{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3)}
+.qr-step i{
+  flex:none;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;
+  font-style:normal;font-size:9.5px;font-weight:700;
+  background:var(--brandBg);color:var(--brand);border:1px solid var(--brandBd);
+}
+.qr-copy{
+  flex:none;display:flex;align-items:center;gap:6px;
+  padding:8px 14px;border-radius:9px;border:1px dashed var(--dash);
+  background:transparent;cursor:pointer;
+  font-size:12px;font-weight:600;color:var(--text2);
+  font-family:inherit;white-space:nowrap;
+  transition:border-color .2s,color .2s,background .2s;
+}
+.qr-copy:hover{border-color:var(--brandBd);color:var(--text);background:var(--card2)}
+.qr-copy svg{width:13px;height:13px;flex:none}
+.qr-copy.done{color:#10b981;border-color:rgba(16,185,129,.4)}
+
+@media (max-width: 560px){
+  .qr-specs{grid-template-columns:repeat(2,1fr);gap:14px 0}
+  .spec:nth-child(2){border-right:0}
+  .spec:nth-child(3),.spec:nth-child(4){padding-top:12px;border-top:1px solid var(--line2)}
+  .qr-foot{flex-direction:column;align-items:stretch;gap:12px}
+  .qr-copy{justify-content:center}
+}
+
+
+
+/* 什么时候用密聊 */
+.when{
+  margin-top:20px;padding:20px;border-radius:18px;
+  background:var(--card);border:1px solid var(--line);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+}
+.when-h{
+  font-size:14px;font-weight:700;color:var(--text);margin-bottom:14px;
+  display:flex;align-items:center;gap:8px;
+}
+.when-h::before{content:'';width:3px;height:14px;border-radius:2px;background:var(--brand)}
+
+.when-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.when-card{
+  padding:15px 15px 16px;border-radius:14px;border:1px solid var(--line);
+  background:var(--card2);
+}
+.when-card.on{
+  background:linear-gradient(150deg,rgba(16,185,129,.09),rgba(6,182,212,.05));
+  border-color:rgba(16,185,129,.28);
+}
+.when-tag{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:12px;font-weight:700;margin-bottom:11px;
+  padding:3px 9px;border-radius:7px;
+}
+.when-card.on .when-tag{background:rgba(16,185,129,.16);color:#10b981}
+.when-card.off .when-tag{background:var(--card2);color:var(--text2);border:1px solid var(--line)}
+.when-l{
+  font-size:12px;color:var(--text2);line-height:1.7;
+  padding-left:12px;position:relative;margin-bottom:4px;
+}
+.when-l::before{
+  content:'';position:absolute;left:0;top:.72em;
+  width:3px;height:3px;border-radius:50%;background:var(--text4);
+}
+.when-card.on .when-l::before{background:#10b981;opacity:.7}
+
+.when-rule{
+  margin-top:14px;padding:15px 16px;border-radius:13px;
+  background:linear-gradient(135deg,rgba(99,102,241,.08),rgba(139,92,246,.05));
+  border:1px solid rgba(99,102,241,.18);
+}
+.when-rule-k{font-size:11px;font-weight:700;color:var(--text4);letter-spacing:.04em;margin-bottom:8px}
+.when-rule-q{font-size:13.5px;font-weight:600;color:var(--text);line-height:1.6;margin-bottom:10px}
+.when-rule-a{display:flex;gap:9px;flex-wrap:wrap}
+.ra{
+  font-size:11.5px;font-weight:700;padding:4px 11px;border-radius:7px;
+}
+.ra.yes{background:rgba(16,185,129,.16);color:#10b981}
+.ra.no{background:var(--card2);color:var(--text2)}
+
+@media (max-width: 560px){
+  .when-grid{grid-template-columns:1fr}
+}
+
+
+
+
+.plat-note{
+  display:flex;align-items:flex-start;gap:6px;
+  margin-top:9px;padding:9px 11px;border-radius:10px;
+  background:var(--brandBg);border:1px solid var(--brandBd);
+  font-size:11px;color:var(--text2);line-height:1.65;
+}
+.plat-note svg{flex:none;margin-top:2px;color:var(--brand);opacity:.85}
+
+
+/* 亮色模式下彩色图标要加深，否则浅底上几乎看不见 */
+:root[data-theme="light"] .feat-row:nth-child(1) .feat-ico{background:rgba(99,102,241,0.28);border-color:rgba(99,102,241,0.49)}
+:root[data-theme="light"] .feat-row:nth-child(2) .feat-ico{background:rgba(239,68,68,0.26);border-color:rgba(239,68,68,0.46)}
+:root[data-theme="light"] .feat-row:nth-child(3) .feat-ico{background:rgba(244,114,182,0.28);border-color:rgba(244,114,182,0.49)}
+:root[data-theme="light"] .feat-row:nth-child(4) .feat-ico{background:rgba(14,165,233,0.28);border-color:rgba(14,165,233,0.49)}
+:root[data-theme="light"] .feat-row:nth-child(5) .feat-ico{background:rgba(245,158,11,0.30);border-color:rgba(245,158,11,0.51)}
+:root[data-theme="light"] .feat-row:nth-child(6) .feat-ico{background:rgba(16,185,129,0.28);border-color:rgba(16,185,129,0.49)}
+:root[data-theme="light"] .feat-row:nth-child(7) .feat-ico{background:rgba(139,92,246,0.28);border-color:rgba(139,92,246,0.49)}
+:root[data-theme="light"] .feat-row:nth-child(8) .feat-ico{background:rgba(59,130,246,0.28);border-color:rgba(59,130,246,0.49)}
+:root[data-theme="light"] .feat-row:nth-child(9) .feat-ico{background:rgba(236,72,153,0.26);border-color:rgba(236,72,153,0.46)}
+:root[data-theme="light"] .feat-row:nth-child(10) .feat-ico{background:rgba(168,85,247,0.28);border-color:rgba(168,85,247,0.49)}
+:root[data-theme="light"] .feat-row:nth-child(11) .feat-ico{background:rgba(234,179,8,0.30);border-color:rgba(234,179,8,0.53)}
+:root[data-theme="light"] .feat-row:nth-child(12) .feat-ico{background:rgba(6,182,212,0.28);border-color:rgba(6,182,212,0.49)}
+
+
+
+/* 页脚 GitHub 大按钮 */
+.foot-git{
+  display:flex;align-items:center;gap:14px;
+  max-width:420px;margin:0 auto 20px;
+  padding:16px 20px;border-radius:16px;text-decoration:none;
+  background:linear-gradient(135deg,rgba(99,102,241,.09),rgba(139,92,246,.05));
+  border:1px solid var(--brandBd);
+  transition:border-color .2s,background .2s,transform .24s cubic-bezier(.16,1,.3,1),box-shadow .24s;
+}
+.foot-git:hover{
+  border-color:var(--brand);
+  background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(139,92,246,.09));
+  transform:translateY(-2px);
+  box-shadow:0 14px 34px -16px rgba(99,102,241,.5);
+}
+.foot-git > svg:first-of-type{
+  flex:none;color:var(--text);opacity:.9;
+}
+.fg-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.fg-t{
+  font-size:14px;font-weight:600;color:var(--text);
+  line-height:1.4;
+}
+.fg-d{
+  font-size:11px;color:var(--text3);
+  font-family:ui-monospace,Menlo,monospace;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.fg-arrow{
+  flex:none;color:var(--brand);opacity:.7;
+  transition:transform .2s,opacity .2s;
+}
+.foot-git:hover .fg-arrow{transform:translate(2px,-2px);opacity:1}
+@media (max-width: 480px){
+  .foot-git{padding:14px 16px;gap:11px}
+  .fg-t{font-size:13px}
+  .fg-d{font-size:10.5px}
+}
+
+</style>
+</head>
+<body>
+<button class="lang-toggle" id="lang-toggle" aria-label="切换语言">中 / EN</button>
+<button class="theme-toggle" id="theme-toggle" aria-label="切换主题">
+  <svg class="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+  <svg class="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.4M12 19.6V22M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M2 12h2.4M19.6 12H22M4.9 19.1l1.7-1.7M17.4 6.6l1.7-1.7"/></svg>
+</button>
+
+<div class="bg"><i></i><i></i><i></i><i></i><i></i></div>
+<div class="grain"></div>
+
+<div class="wrap">
+  <div class="hero">
+    <div class="mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8.6"/>
+        <path d="M8.2 12.4l2.7 2.7 5-5.4"/>
+      </svg>
+    </div>
+    <div class="brand">悄悄</div>
+    <div class="slogan" data-i18n="slogan">悄无声息的对话</div>
+
+    <a class="e2ee-badge" href="#crypto-tech" title="看看怎么做到的">
+      <span class="e2ee-dot"></span>
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>
+      <b>E2EE</b>
+      <span class="e2ee-sep"></span>
+      <span data-i18n="e2ee.label">端到端加密 · 任何人不可读</span>
+      <svg class="e2ee-arrow" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+    </a>
+
+    <div class="rule"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-inner">
+      <a class="btn" id="main-btn" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 19h16"/></svg>
+        <span data-i18n="btn.download">下载 Android 版</span>
+      </a>
+      <div class="meta">
+        <span id="m-ver">最新版本</span>
+        <span id="m-size">—</span>
+        <span data-i18n="meta.android">Android 6.0+</span>
+      </div>
+      <a class="web-now" href="/">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>
+        <span data-i18n="web.now">不想装？立即体验网页版</span>
+      </a>
+      <div class="hint">
+        <span data-i18n="hint.line1">安装时若提示「未知来源」，选择「仍要安装」即可。</span><br>
+        <span data-i18n="hint.line2">iPhone 请直接用浏览器打开，添加到主屏幕。</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="qr-row">
+      <div class="qr-box">
+        <img class="qr-dark" src="/api/qr?t=https%3A%2F%2Fim.bierlan.ccwu.cc%2Fdownload%2F" alt="扫码下载" width="88" height="88">
+        <img class="qr-light" src="/api/qr?light=1&t=https%3A%2F%2Fim.bierlan.ccwu.cc%2Fdownload%2F" alt="扫码下载" width="88" height="88">
+      </div>
+      <div class="qr-mid">
+        <div class="qr-t" data-i18n="qr.title">扫码下载</div>
+        <div class="qr-d" data-i18n="qr.desc">手机相机扫一下，直接打开这个页面</div>
+        <div class="plat">
+          <span class="plat-item">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="#3ddc84"><path d="M17.6 9.5l1.5-2.6a.4.4 0 0 0-.7-.4l-1.5 2.6a9.6 9.6 0 0 0-9.8 0L5.6 6.5a.4.4 0 0 0-.7.4l1.5 2.6A8.6 8.6 0 0 0 2 16h20a8.6 8.6 0 0 0-4.4-6.5zM7 13.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm10 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
+            Android
+          </span>
+          <span class="plat-item">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M16.4 12.7c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.9-.9-3.1-.8-1.6 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 3 2.3 1.2 0 1.6-.8 3.1-.8s1.9.8 3.1.7c1.3 0 2.1-1.2 2.9-2.3.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.8-1.1-2.8-3.6zM14.2 5.8c.6-.8 1-1.9.9-3-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2-.5 2.8-1.3z"/></svg>
+            iPhone
+          </span>
+          <span class="plat-item">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="#0078d4"><path d="M3 4.5l8.2-1.1v8.1H3V4.5zm9.2-1.3L21 2v9.5h-8.8V3.2zM3 12.5h8.2v8.1L3 19.5v-7zm9.2 0H21V22l-8.8-1.2v-8.3z"/></svg>
+            Windows
+          </span>
+          <span class="plat-item">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M1 19.5h22"/></svg>
+            macOS
+          </span>
+          <span class="plat-item">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="13.5" rx="6" ry="7.5"/><circle cx="12" cy="6" r="3"/><path d="M10 12h.01M14 12h.01M9.5 16c1.5 1 3.5 1 5 0"/></svg>
+            Linux
+          </span>
+        </div>
+        <div class="plat-note">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/><circle cx="12" cy="12" r="3.4"/></svg>
+          <span data-i18n="plat.note">除 Android 外，其他系统不用下载安装包 —— 浏览器打开后点「安装」或「添加到主屏幕」，就能建一个独立图标</span>
+        </div>
+      </div>
+      <button class="qr-copy" id="qr-copy">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        <span data-i18n="qr.copy">复制链接</span>
+      </button>
+    </div>
+  </div>
+
+
+
+  <div class="sec">
+    <div class="sec-head"><i>01</i><b data-i18n="sec1">三步就能用</b><em></em></div>
+    <div class="steps">
+      <div class="step">
+        <span class="step-n">1</span>
+        <div><div class="step-t" data-i18n="step1.t">装上 App</div><div class="step-d" data-i18n="step1.d">下载上面的 APK，允许「未知来源」安装</div></div>
+      </div>
+      <div class="step">
+        <span class="step-n">2</span>
+        <div><div class="step-t" data-i18n="step2.t">注册账号</div><div class="step-d" data-i18n="step2.d">手机号 + 密码，填一下验证码。之后手机号或 ID 都能登录</div></div>
+      </div>
+      <div class="step">
+        <span class="step-n">3</span>
+        <div><div class="step-t" data-i18n="step3.t">开密聊</div><div class="step-d" data-i18n="step3.d">找个人私聊，点顶部 🔒 上锁</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head"><i>02</i><b data-i18n="sec2">它是什么</b><em></em></div>
+    <div class="feat">
+      <div class="feat-row">
+        <div class="feat-ico">🔐</div>
+        <div>
+          <div class="feat-t"><span data-i18n="f1.t">密聊 · 端到端加密</span><em>核心</em></div>
+          <div class="feat-d" data-i18n="f1.d">消息在你手机上就已上锁，服务器经手的只是一串乱码。连开发者本人都读不到。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">🔥</div>
+        <div>
+          <div class="feat-t" data-i18n="f2.t">阅后即焚 · 双向撤回</div>
+          <div class="feat-d" data-i18n="f2.d">设定时间自动消失；双向撤回一键清空双方记录，不留任何痕迹。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">🧹</div>
+        <div>
+          <div class="feat-t" data-i18n="f3.t">双向撤回</div>
+          <div class="feat-d" data-i18n="f3.d">一键清空双方全部记录，不受 2 分钟限制。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">👥</div>
+        <div>
+          <div class="feat-t" data-i18n="f4.t">群聊</div>
+          <div class="feat-d" data-i18n="f4.d">细粒度权限、邀请链接、慢速模式、群公告。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">📢</div>
+        <div>
+          <div class="feat-t" data-i18n="f5.t">频道</div>
+          <div class="feat-d" data-i18n="f5.d">公开频道能被发现，私密频道只能受邀。管理员单向下发。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">💬</div>
+        <div>
+          <div class="feat-t" data-i18n="f6.t">话题分组</div>
+          <div class="feat-d" data-i18n="f6.d">一个群里拆多个话题，讨论不串味。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">🎙</div>
+        <div>
+          <div class="feat-t" data-i18n="f7.t">语音消息</div>
+          <div class="feat-d" data-i18n="f7.d">可倍速、可拖动进度条，长语音不用从头听。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">📄</div>
+        <div>
+          <div class="feat-t" data-i18n="f8.t">文件与预览</div>
+          <div class="feat-d" data-i18n="f8.d">文档、代码、PDF 直接在应用内查看，不用先下载。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">📍</div>
+        <div>
+          <div class="feat-t" data-i18n="f9.t">位置共享</div>
+          <div class="feat-d" data-i18n="f9.d">发一条位置卡片，点开跳到地图。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">🎭</div>
+        <div>
+          <div class="feat-t" data-i18n="f10.t">匿名提问</div>
+          <div class="feat-d" data-i18n="f10.d">谁问的不会告诉你，回答后问答公开在主页。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">🎲</div>
+        <div>
+          <div class="feat-t" data-i18n="f11.t">骰子 · 猜拳 · 投票</div>
+          <div class="feat-d" data-i18n="f11.d">真的骰子动画、真的手势，群里投票当场出结果。</div>
+        </div>
+      </div>
+      <div class="feat-row">
+        <div class="feat-ico">🛡</div>
+        <div>
+          <div class="feat-t"><span data-i18n="f12.t">隐私控制</span><em>全面</em></div>
+          <div class="feat-d" data-i18n="f12.d">隐身、已读开关、截屏保护、黑名单、登录设备、两步验证。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head" id="crypto-tech"><i>03</i><b data-i18n="sec3">加密技术</b><em></em></div>
+
+    <div class="explain">
+      <p data-i18n="exp1">消息发出去之前，就已经在你的手机上，用<b>只有你和对方知道的密钥</b>加密好了。</p>
+      <p data-i18n="exp2">服务器收到的只是一串随机字符。没有那把密钥，谁也还原不出来 —— <b>包括开发者本人</b>。</p>
+    </div>
+
+    <div class="tech-grid">
+      <div class="tech">
+        <div class="tech-ico">🔑</div>
+        <div class="tech-t">ECDH P-256</div>
+        <div class="tech-d" data-i18n="tech1.d">双方各持一对密钥，各自算出同一个共享密钥，私钥永远不出手机</div>
+      </div>
+      <div class="tech">
+        <div class="tech-ico">🔒</div>
+        <div class="tech-t">AES-256-GCM</div>
+        <div class="tech-d" data-i18n="tech2.d">业界标准认证加密，带完整性校验，改一个字节就解不开</div>
+      </div>
+      <div class="tech">
+        <div class="tech-ico">🧬</div>
+        <div class="tech-t">HKDF-SHA256</div>
+        <div class="tech-d" data-i18n="tech3.d">把共享密钥派生成独立的会话密钥，不同对话互不影响</div>
+      </div>
+      <div class="tech">
+        <div class="tech-ico">📱</div>
+        <div class="tech-t" data-i18n="tech4.t">原生实现</div>
+        <div class="tech-d" data-i18n="tech4.d">加解密跑在 App 原生层，不依赖浏览器能力，环境再差也能用</div>
+      </div>
+    </div>
+
+    <div class="tech-note">
+      <div class="tech-note-h" data-i18n="note.h">基于 Signal 协议 · 业界公认最安全的加密方案</div>
+      <div class="tech-note-b">
+        <div style="font-size:13px;line-height:1.9;margin-bottom:12px;color:var(--text)">
+          <span data-i18n="note.lead"><b>Signal 协议是目前全世界公认最安全的端到端加密协议。</b>WhatsApp、Google Messages、Facebook Messenger 用的都是它，被全球密码学家审查了十多年，至今没有被攻破的记录。</span>
+        </div>
+        <span data-i18n="note.b">悄悄借鉴了 Signal 的经典设计：先协商密钥，再用对称加密传消息。Signal 的完整实现还包含 Double Ratchet 双棘轮（每条消息换密钥，实现前向保密）。我们用的是简化版 —— <b>服务器解不开这一点完全相同</b>，差别在于密钥被攻破时，历史消息的保护弱一些。</span>
+
+        <div class="vs-tg">
+          <div class="vs-tg-h">
+            <span class="vs-badge">对比 Telegram</span>
+            <span data-i18n="vs.t">在某些关键点上，比它更彻底</span>
+          </div>
+          <div class="vs-tg-body">
+            <div class="vs-line">
+              <span class="vs-k">Telegram</span>
+              <span class="vs-v">密聊走端到端，但<b>服务器在 Telegram 手里</b>。谁在什么时候跟谁聊了多久、消息体积多大、设备 IP —— 这些元数据他们全掌握。普通聊天更是明文存在他们服务器上。</span>
+            </div>
+            <div class="vs-line">
+              <span class="vs-k hl">悄悄</span>
+              <span class="vs-v">密聊走端到端，而且<b>整个服务跑在你自己的机器上</b>。不只是内容读不到 —— 连"谁在聊天"这件事，也只有你自己知道。</span>
+            </div>
+            <div class="vs-concl">
+              <span data-i18n="vs.concl">同样是端到端加密，<b>区别是那台服务器归谁。</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="when">
+      <div class="when-h" data-i18n="when.h">什么时候该用密聊</div>
+
+      <div class="when-grid">
+        <div class="when-card on">
+          <div class="when-tag">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>
+            <span data-i18n="when.on">开密聊</span>
+          </div>
+          <div class="when-l" data-i18n="when.on1">聊私事、说别人的闲话、抱怨工作</div>
+          <div class="when-l" data-i18n="when.on2">发证件照、家庭住址、密码、验证码</div>
+          <div class="when-l" data-i18n="when.on3">感情问题、钱的事、体检报告</div>
+          <div class="when-l" data-i18n="when.on4">任何"这话只给你听"的场合</div>
+        </div>
+
+        <div class="when-card off">
+          <div class="when-tag">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-4-.9L3 21l1.9-4.8A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/></svg>
+            <span data-i18n="when.off">用普通聊天</span>
+          </div>
+          <div class="when-l" data-i18n="when.off1">以后还想搜到这条消息的</div>
+          <div class="when-l" data-i18n="when.off2">换手机也要带着走的</div>
+          <div class="when-l" data-i18n="when.off3">工作安排、通知、文件共享</div>
+          <div class="when-l" data-i18n="when.off4">群里多人聊，记录越长越有用的</div>
+        </div>
+      </div>
+
+      <div class="when-rule">
+        <div class="when-rule-k" data-i18n="when.rk">记不住规则？就问自己一句</div>
+        <div class="when-rule-q" data-i18n="when.rq">"这话要是被服务器主人看到，我会尴尬吗？"</div>
+        <div class="when-rule-a">
+          <span class="ra yes" data-i18n="when.ra1">会 → 密聊</span>
+          <span class="ra no" data-i18n="when.ra2">不会 → 普通聊天</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head"><i>04</i><b>数据怎么走</b><em></em></div>
+
+    <div class="flow">
+      <div class="flow-col">
+        <div class="flow-node you">
+          <div class="flow-ico">📱</div>
+          <div class="flow-t">你的手机</div>
+        </div>
+        <div class="flow-step">写下消息</div>
+        <div class="flow-step hl">用会话密钥加密</div>
+        <div class="flow-step">变成一串乱码</div>
+      </div>
+
+      <div class="flow-arrow">
+        <span>─────►</span>
+        <em>只传密文</em>
+      </div>
+
+      <div class="flow-col">
+        <div class="flow-node srv">
+          <div class="flow-ico">🖥</div>
+          <div class="flow-t">服务器</div>
+        </div>
+        <div class="flow-step">存下一串乱码</div>
+        <div class="flow-step bad">✗ 解不开</div>
+        <div class="flow-step bad">✗ 看不到</div>
+      </div>
+
+      <div class="flow-arrow">
+        <span>─────►</span>
+        <em>还是密文</em>
+      </div>
+
+      <div class="flow-col">
+        <div class="flow-node peer">
+          <div class="flow-ico">📱</div>
+          <div class="flow-t">对方手机</div>
+        </div>
+        <div class="flow-step">收到乱码</div>
+        <div class="flow-step hl">用会话密钥解密</div>
+        <div class="flow-step">看到原文</div>
+      </div>
+    </div>
+
+    <div class="flow-note">
+      密钥从头到尾只存在于两台手机上。<b>整条链路上，只有收发的两个人能读懂。</b>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head"><i>05</i><b>和其他聊天工具比</b><em></em></div>
+
+    <div class="cmp">
+      <div class="cmp-row cmp-head">
+        <div class="cmp-c1"></div>
+        <div class="cmp-c">悄悄</div>
+        <div class="cmp-c">微信</div>
+        <div class="cmp-c">Telegram</div>
+      </div>
+      <div class="cmp-row">
+        <div class="cmp-c1">提供端到端加密</div>
+        <div class="cmp-c"><span class="yes">✓</span></div>
+        <div class="cmp-c"><span class="no">✗</span></div>
+        <div class="cmp-c"><span class="yes">✓</span></div>
+      </div>
+      <div class="cmp-row">
+        <div class="cmp-c1">普通聊天服务器能读</div>
+        <div class="cmp-c"><span class="part">能</span></div>
+        <div class="cmp-c"><span class="part">能</span></div>
+        <div class="cmp-c"><span class="part">能</span></div>
+      </div>
+      <div class="cmp-row">
+        <div class="cmp-c1">服务器的运营者是你自己</div>
+        <div class="cmp-c"><span class="yes">✓</span></div>
+        <div class="cmp-c"><span class="no">✗</span></div>
+        <div class="cmp-c"><span class="no">✗</span></div>
+      </div>
+      <div class="cmp-row">
+        <div class="cmp-c1">可自己部署</div>
+        <div class="cmp-c"><span class="yes">✓</span></div>
+        <div class="cmp-c"><span class="no">✗</span></div>
+        <div class="cmp-c"><span class="no">✗</span></div>
+      </div>
+      <div class="cmp-row">
+        <div class="cmp-c1">手机号或 ID 都能登录</div>
+        <div class="cmp-c"><span class="yes">✓</span></div>
+        <div class="cmp-c"><span class="no">✗</span></div>
+        <div class="cmp-c"><span class="no">✗</span></div>
+      </div>
+      <div class="cmp-row">
+        <div class="cmp-c1">不留广告和推荐</div>
+        <div class="cmp-c"><span class="yes">✓</span></div>
+        <div class="cmp-c"><span class="no">✗</span></div>
+        <div class="cmp-c"><span class="part">频道有</span></div>
+      </div>
+    </div>
+
+    <div class="cmp-note">
+      微信和 Telegram 都是优秀的通讯工具，这里只做事实对比，不评价好坏。
+      <b>悄悄唯一的野心是：连服务器主人也读不到你的消息。</b>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head"><i>06</i><b>你能做的事</b><em></em></div>
+    <p class="sec-desc" style="font-size:13px;color:var(--text3);margin-top:4px">
+      加密只解决"传输途中"的问题。下面这些，得你自己来。
+    </p>
+
+    <div class="tips">
+      <div class="tip-row">
+        <div class="tip-ico" style="background:linear-gradient(135deg,#be123c,#e11d48)">📵</div>
+        <div>
+          <div class="tip-t">别在密聊里截图</div>
+          <div class="tip-d">加密防的是服务器，防不住你自己的截图。截了图，内容就跑到相册里了。</div>
+        </div>
+      </div>
+      <div class="tip-row">
+        <div class="tip-ico" style="background:linear-gradient(135deg,#b45309,#c2410c)">🛡</div>
+        <div>
+          <div class="tip-t">打开截屏保护和两步验证</div>
+          <div class="tip-d">在「我 → 隐私」里。截屏保护让系统禁止截图，两步验证让密码泄露也不至于丢号。</div>
+        </div>
+      </div>
+      <div class="tip-row">
+        <div class="tip-ico" style="background:linear-gradient(135deg,#0369a1,#0e7490)">🔑</div>
+        <div>
+          <div class="tip-t">密码别和别人重样</div>
+          <div class="tip-d">至少 8 位，带字母和数字。别用生日、手机号后六位。</div>
+        </div>
+      </div>
+      <div class="tip-row">
+        <div class="tip-ico" style="background:linear-gradient(135deg,#047857,#15803d)">💻</div>
+        <div>
+          <div class="tip-t">定期看一眼登录设备</div>
+          <div class="tip-d">「我 → 隐私 → 登录设备」，看到不认识的直接踢掉。</div>
+        </div>
+      </div>
+      <div class="tip-row">
+        <div class="tip-ico" style="background:linear-gradient(135deg,#6d28d9,#7e22ce)">🚫</div>
+        <div>
+          <div class="tip-t">不想被打扰就设「只收好友消息」</div>
+          <div class="tip-d">「我 → 隐私 → 谁能给我发消息」。被骚扰了还能拉黑。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head"><i>07</i><b>常见问题</b><em></em></div>
+
+    <div class="faq">
+      <details>
+        <summary>服务器真的看不到我的消息吗？</summary>
+        <div class="faq-a">
+          密聊里的消息，在你手机上就已经加密了。服务器存的是密文，没有密钥解不开 —— 包括开发者。<br><br>
+          但<b>普通聊天不是这样</b>：那是服务器端加密，密钥在服务器上，为了支持搜索、备份、你在后台查记录。想要端到端，就开密聊。
+        </div>
+      </details>
+
+      <details>
+        <summary>换手机后密聊记录会丢吗？</summary>
+        <div class="faq-a">
+          会。密钥只存在当前这台手机上，不备份到服务器。<br><br>
+          这是端到端加密的必然代价：服务器连密钥都没有，自然也没法帮你恢复。普通聊天的记录不受影响。
+        </div>
+      </details>
+
+      <details>
+        <summary>这算不算"最安全"的聊天软件？</summary>
+        <div class="faq-a">
+          准确的说法是：<b>架构上做到了"服务器读不到"</b>，用的是和 Signal 同一套思路。<br><br>
+          但我们是简化版 —— 没有 Double Ratchet 双棘轮，所以密钥万一被攻破，历史消息的保护弱一些。Signal 完整版做得更彻底。
+        </div>
+      </details>
+
+      <details>
+        <summary>要花钱吗？有广告吗？</summary>
+        <div class="faq-a">
+          不花钱，没广告，不做推荐，不卖数据。<br><br>
+          整套东西跑在自己的服务器上，成本是那台机器的租金。用户少的时候几乎零成本。
+        </div>
+      </details>
+
+      <details>
+        <summary>我的手机号会被用来做什么？</summary>
+        <div class="faq-a">
+          <b>只在注册和第一次登录时用一次。</b>注册完系统会给你分配一个数字 ID，之后<b>手机号或 ID 都能登录</b>，随你记哪个。<br><br>
+          手机号不做通讯录匹配，不推荐"你可能认识的人"，不给第三方。<br><br>
+          你还可以在「我 → 隐私」里对别人隐藏手机号，别人只能用数字 ID 找到你。
+        </div>
+      </details>
+
+      <details>
+        <summary>可以用 ID 登录吗？忘记 ID 会不会进不去？</summary>
+        <div class="faq-a">
+          <b>手机号和 ID 都能登录，记哪个都行。</b>登录时那一栏填手机号也行，填数字 ID 也行，密码不变。<br><br>
+          注册后系统会分配一个纯数字 ID（比如 <code>88888</code>），在「我」页面能看到，也可以自己改一个好记的。<br><br>
+          所以<b>不用担心记不住 ID</b> —— 手机号永远能进。ID 只是多给你一个选择，方便那些不想每次输手机号的人。
+        </div>
+      </details>
+
+      <details>
+        <summary>为什么有时发不出密聊消息？</summary>
+        <div class="faq-a">
+          最常见的原因：<b>对方还没打开过新版 App</b>，密钥还没生成，加密通道建不起来。<br><br>
+          让 TA 打开一次 App 就行，密钥会自动生成并上传。另外在浏览器里（非 HTTPS）用密聊，加密能力不可用，也会被拦下。
+        </div>
+      </details>
+
+      <details>
+        <summary>数据存在哪？会被备份走吗？</summary>
+        <div class="faq-a">
+          存在你自己的服务器上，数据库文件和图片都在本地磁盘。<br><br>
+          没有第三方云同步。备份要你自己做，也只有你能拿到。
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head"><i>08</i><b>关于这个项目</b><em></em></div>
+
+    <div class="letter">
+      <div class="letter-body">
+        <p>这不是一个要跟微信抢用户的产品。</p>
+        <p>它只解决一个问题：<b>当你说"这话只给你听"的时候，这句话在技术上真的成立。</b></p>
+        <p>主流聊天工具的加密，密钥握在平台手里。平台能看到、能分析、能被要求提供。我不想在这种前提下去聊私事，所以自己写了一个。</p>
+        <p>它跑在自己的服务器上，代码自己维护，没有第三方中转。加密用的是业界公开、被反复验证的算法，不是自己发明的。</p>
+        <p class="letter-sign">—— 运运</p>
+      </div>
+
+      <div class="promise">
+        <div class="promise-h">不做的事</div>
+        <div class="promise-list">
+          <div class="promise-item"><span class="x">✗</span>不收集通讯录</div>
+          <div class="promise-item"><span class="x">✗</span>不做用户画像</div>
+          <div class="promise-item"><span class="x">✗</span>不投广告不做推荐</div>
+          <div class="promise-item"><span class="x">✗</span>不卖数据给第三方</div>
+          <div class="promise-item"><span class="x">✗</span>不在后台偷偷读密聊</div>
+          <div class="promise-item"><span class="x">✗</span>不用你的内容训练任何东西</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec" id="old-sec" style="display:none">
+    <div class="sec-head"><i>09</i><b data-i18n="sec4">历史版本</b><em></em></div>
+    <div class="vers" id="old-list"></div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head"><i>10</i><b data-i18n="sec5">更新日志</b><em></em></div>
+    <div class="changelog">
+      <div class="cl-item">
+        <div class="cl-v">v2.6</div>
+        <div class="cl-body">
+          <div class="cl-d" data-i18n="log.d1">11 月 13 日</div>
+          <div class="cl-l" data-i18n="log.26a">APK 内置完整页面，不再依赖后台下载</div>
+          <div class="cl-l" data-i18n="log.26b">密聊在环境不支持加密时拦截发送</div>
+          <div class="cl-l" data-i18n="log.26c">新增环境诊断</div>
+          <div class="cl-l" data-i18n="log.26d">登录支持手机号或 ID，不会再因 ID 形似手机号而失败</div>
+        </div>
+      </div>
+      <div class="cl-item">
+        <div class="cl-v">v2.3</div>
+        <div class="cl-body">
+          <div class="cl-d" data-i18n="log.d2">11 月 12 日</div>
+          <div class="cl-l" data-i18n="log.23a">匿名提问、我的收藏、多账号切换</div>
+          <div class="cl-l" data-i18n="log.23b">公开频道发现</div>
+        </div>
+      </div>
+      <div class="cl-item old">
+        <div class="cl-v">v2.0</div>
+        <div class="cl-body">
+          <div class="cl-d" data-i18n="log.d3">11 月 11 日</div>
+          <div class="cl-l" data-i18n="log.20a">细粒度群权限、邀请链接、慢速模式</div>
+          <div class="cl-l" data-i18n="log.20b">阅后即焚、双向撤回、两步验证</div>
+          <div class="cl-l" data-i18n="log.20c">语音倍速、文件预览、消息虚拟化</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  
+
+  <div class="foot">
+    <div class="foot-line"></div>
+
+    <a class="foot-git" href="https://github.com/hhoneypot0-ui/Whisper/issues/new" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3z"/></svg>
+      <span class="fg-text">
+        <span class="fg-t" data-i18n="foot.git">有问题或想法？到 GitHub 提</span>
+        <span class="fg-d">github.com/hhoneypot0-ui/Whisper</span>
+      </span>
+      <svg class="fg-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+    </a>
+
+    <div class="foot-t">
+      <span data-i18n="foot1"><b>悄悄</b> · 端到端加密通讯</span><br>
+      <span data-i18n="foot2">服务器看不到你们聊了什么</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  /* ---------- 主题 ---------- */
+  (function(){
+    var KEY = 'qiao_theme';
+    var root = document.documentElement;
+    function apply(t){
+      if (t === 'light' || t === 'dark') root.setAttribute('data-theme', t);
+      else root.removeAttribute('data-theme');
+    }
+    // 默认亮色；只有用户手动切过才记住
+    var saved = null;
+    try { saved = localStorage.getItem(KEY); } catch(e){}
+    apply(saved === 'dark' ? 'dark' : 'light');
+
+    var btn = document.getElementById('theme-toggle');
+    if (btn) {
+      btn.addEventListener('click', function(){
+        var cur = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+        var next = cur === 'dark' ? 'light' : 'dark';
+        apply(next);
+        try { localStorage.setItem(KEY, next); } catch(e){}
+      });
+    }
+  })();
+
+
+  /* ---------- 多语言 ---------- */
+  (function(){
+    var KEY = 'qiao_lang';
+    var dict = {
+      zh: {
+        'slogan': '悄无声息的对话',
+        'e2ee.label': '端到端加密 · 任何人不可读',
+        'btn.download': '下载 Android 版',
+        'meta.android': 'Android 6.0+',
+        'hint.line1': '安装时若提示「未知来源」，选择「仍要安装」即可。',
+        'hint.line2': 'iPhone 请直接用浏览器打开，添加到主屏幕。',
+        'qr.title': '扫码下载',
+        'qr.desc': '用手机相机扫一下<br>直接打开这个页面',
+        'web.now': '不想装？立即体验网页版',
+        'spec1': '安装包 · 比一张照片还小',
+        'spec2': 'Android 版本要求',
+        'spec3v': '0 元',
+        'spec3': '完全免费 · 无内购',
+        'spec4v': '无',
+        'spec4': '广告 · 推送 · 追踪',
+        'qs1': '对准二维码',
+        'qs2': '点弹出的链接',
+        'qs3': '下载安装',
+        'plat.pc': '电脑',
+        'plat.note': '除 Android 外，其他系统不用下载安装包 —— 浏览器打开后点「安装」或「添加到主屏幕」，就能建一个独立图标',
+        'qr.copy': '复制链接',
+        'sec1': '三步就能用',
+        'step1.t': '装上 App',
+        'step1.d': '下载上面的 APK，允许「未知来源」安装',
+        'step2.t': '注册账号',
+        'step2.d': '手机号 + 密码，填一下验证码。之后手机号或 ID 都能登录',
+        'step3.t': '开密聊',
+        'step3.d': '找个人私聊，点顶部 🔒 上锁',
+        'sec2': '它是什么',
+        'f1.t': '密聊 · 端到端加密', 'f1.d': '消息在你手机上就已上锁，服务器经手的只是一串乱码。连开发者本人都读不到。',
+        'f2.t': '阅后即焚 · 双向撤回', 'f2.d': '设定时间自动消失；双向撤回一键清空双方记录，不留任何痕迹。',
+        'f3.t': '双向撤回', 'f3.d': '一键清空双方全部记录，不受 2 分钟限制。',
+        'f4.t': '群聊', 'f4.d': '细粒度权限、邀请链接、慢速模式、群公告。',
+        'f5.t': '频道', 'f5.d': '公开频道能被发现，私密频道只能受邀。管理员单向下发。',
+        'f6.t': '话题分组', 'f6.d': '一个群里拆多个话题，讨论不串味。',
+        'f7.t': '语音消息', 'f7.d': '可倍速、可拖动进度条，长语音不用从头听。',
+        'f8.t': '文件与预览', 'f8.d': '文档、代码、PDF 直接在应用内查看，不用先下载。',
+        'f9.t': '位置共享', 'f9.d': '发一条位置卡片，点开跳到地图。',
+        'f10.t': '匿名提问', 'f10.d': '谁问的不会告诉你，回答后问答公开在主页。',
+        'f11.t': '骰子 · 猜拳 · 投票', 'f11.d': '真的骰子动画、真的手势，群里投票当场出结果。',
+        'f12.t': '隐私控制', 'f12.d': '隐身、已读开关、截屏保护、黑名单、登录设备、两步验证。',
+        'sec3': '加密技术',
+        'tech1.d': '双方各持一对密钥，各自算出同一个共享密钥，私钥永远不出手机',
+        'tech2.d': '业界标准认证加密，带完整性校验，改一个字节就解不开',
+        'tech3.d': '把共享密钥派生成独立的会话密钥，不同对话互不影响',
+        'tech4.t': '原生实现',
+        'tech4.d': '加解密跑在 App 原生层，不依赖浏览器能力，环境再差也能用',
+        'note.h': '基于 Signal 协议 · 业界公认最安全的加密方案',
+        'note.lead': 'Signal 协议是目前全世界公认最安全的端到端加密协议。WhatsApp、Google Messages、Facebook Messenger 用的都是它，被全球密码学家审查了十多年，至今没有被攻破的记录。',
+        'vs.t': '在某些关键点上，比它更彻底',
+        'vs.concl': '同样是端到端加密，<b>区别是那台服务器归谁。</b>',
+        'note.b': '设计和 Signal 的经典方案一致：先协商密钥，再用对称加密传消息。Signal 的完整实现还包含 Double Ratchet 双棘轮（每条消息换密钥，实现前向保密）。我们用的是简化版 —— <b>服务器解不开这一点完全相同</b>，差别在于密钥被攻破时，历史消息的保护弱一些。',
+        'exp1': '消息发出去之前，就已经在你的手机上，用<b>只有你和对方知道的密钥</b>加密好了。',
+        'exp2': '服务器收到的只是一串随机字符。没有那把密钥，谁也还原不出来 —— <b>包括开发者本人</b>。',
+        'when.h': '什么时候该用密聊',
+        'when.on': '开密聊',
+        'when.off': '用普通聊天',
+        'when.on1': '聊私事、说别人的闲话、抱怨工作',
+        'when.on2': '发证件照、家庭住址、密码、验证码',
+        'when.on3': '感情问题、钱的事、体检报告',
+        'when.on4': '任何"这话只给你听"的场合',
+        'when.off1': '以后还想搜到这条消息的',
+        'when.off2': '换手机也要带着走的',
+        'when.off3': '工作安排、通知、文件共享',
+        'when.off4': '群里多人聊，记录越长越有用的',
+        'when.rk': '记不住规则？就问自己一句',
+        'when.rq': '"这话要是被服务器主人看到，我会尴尬吗？"',
+        'when.ra1': '会 → 密聊',
+        'when.ra2': '不会 → 普通聊天',
+        'to.h': '',
+        'to.k1': '你会失去',
+        'to.k2': '你换到的是',
+        'to.l1': '密聊记录不进搜索结果',
+        'to.l2': '换手机后密聊记录带不走',
+        'to.l3': '服务器也没法帮你找回',
+        'to.g1': '谁也读不到，包括服务器主人',
+        'to.g2': '数据库被拖走也只是乱码',
+        'to.g3': '没人能"依法调取"你的内容',
+        'to.f': '想要能搜索、能迁移？<b>普通聊天就是为这个准备的</b> —— 它在服务器端加密，可搜可备份。',
+        'exp3': '',
+        'sec4': '历史版本',
+        'sec5': '更新日志',
+        'log.d1': '11 月 13 日', 'log.d2': '11 月 12 日', 'log.d3': '11 月 11 日',
+        'log.26a': 'APK 内置完整页面，不再依赖后台下载',
+        'log.26b': '密聊在环境不支持加密时拦截发送',
+        'log.26c': '新增环境诊断',
+        'log.26d': '登录支持手机号或 ID，不会再因 ID 形似手机号而失败',
+        'log.23a': '匿名提问、我的收藏、多账号切换',
+        'log.23b': '公开频道发现',
+        'log.20a': '细粒度群权限、邀请链接、慢速模式',
+        'log.20b': '阅后即焚、双向撤回、两步验证',
+        'log.20c': '语音倍速、文件预览、消息虚拟化',
+        'foot.git': '有问题或想法？到 GitHub 提',
+        'foot1': '<b>悄悄</b> · 端到端加密通讯',
+        'foot2': '服务器看不到你们聊了什么'
+      },
+      en: {
+        'slogan': 'CONVERSATIONS THAT LEAVE NO TRACE',
+        'e2ee.label': 'End-to-end encrypted · unreadable by anyone',
+        'btn.download': 'Download for Android',
+        'meta.android': 'Android 6.0+',
+        'hint.line1': 'If you see "Unknown sources", choose "Install anyway".',
+        'hint.line2': 'On iPhone, open it in your browser and add to Home Screen.',
+        'qr.title': 'Scan to download',
+        'qr.desc': 'Point your camera here<br>to open this page',
+        'web.now': 'No install? Try the web version',
+        'spec1': 'package — smaller than a photo',
+        'spec2': 'Android required',
+        'spec3v': 'Free',
+        'spec3': 'no purchase, ever',
+        'spec4v': 'None',
+        'spec4': 'ads · push · tracking',
+        'qs1': 'Frame the code',
+        'qs2': 'Tap the link',
+        'qs3': 'Install',
+        'plat.pc': 'Desktop',
+        'plat.note': 'Only Android needs a download — on other systems just open it in your browser and use "Install" or "Add to Home Screen"',
+        'qr.copy': 'Copy link',
+        'sec1': 'Up and running in 3 steps',
+        'step1.t': 'Install',
+        'step1.d': 'Download the APK above, allow installation',
+        'step2.t': 'Sign up',
+        'step2.d': 'Phone number and password, plus a captcha. After that either your phone or your ID works',
+        'step3.t': 'Go secret',
+        'step3.d': 'Open a chat, tap 🔒 at the top to lock it',
+        'sec2': 'What it is',
+        'f1.t': 'Secret chat · end-to-end encrypted', 'f1.d': 'Messages are locked on your phone. The server only ever sees scrambled bytes — not even the developer can read them.',
+        'f2.t': 'Self-destruct · wipe both sides', 'f2.d': 'Set a timer and messages vanish. Wipe clears the conversation for both of you, with no trace left.',
+        'f3.t': 'Wipe for both sides', 'f3.d': 'One tap clears the entire conversation for both of you, with no 2-minute limit.',
+        'f4.t': 'Group chats', 'f4.d': 'Fine-grained permissions, invite links, slow mode, announcements.',
+        'f5.t': 'Channels', 'f5.d': 'Public channels are discoverable; private ones are invite-only. Broadcast from admins.',
+        'f6.t': 'Topics', 'f6.d': 'Split a group into topics so discussions stay separate.',
+        'f7.t': 'Voice messages', 'f7.d': 'Adjustable speed and scrubbable progress — skip ahead in long recordings.',
+        'f8.t': 'Files & previews', 'f8.d': 'Documents, code and PDFs open right inside the app, no download needed.',
+        'f9.t': 'Location sharing', 'f9.d': 'Send a location card; tap to open it in maps.',
+        'f10.t': 'Anonymous questions', 'f10.d': 'You will not know who asked. Answers are published on your profile.',
+        'f11.t': 'Dice · Rock-paper-scissors · Polls', 'f11.d': 'Real dice animation, real gestures, instant poll results.',
+        'f12.t': 'Privacy controls', 'f12.d': 'Invisible mode, read receipts, screenshot protection, blocklist, device management, 2FA.',
+        'sec3': 'Encryption',
+        'tech1.d': 'Each side holds a key pair and derives the same shared secret — private keys never leave the device',
+        'tech2.d': 'Industry-standard authenticated encryption with integrity checks — flip one byte and it fails',
+        'tech3.d': 'Derives independent session keys from the shared secret, so conversations stay isolated',
+        'tech4.t': 'Native implementation',
+        'tech4.d': 'Encryption runs in the native layer, independent of browser capabilities',
+        'note.h': 'Built on the Signal protocol · the most secure in the world',
+        'note.lead': 'The Signal protocol is widely regarded as the most secure end-to-end encryption protocol in existence. WhatsApp, Google Messages and Facebook Messenger all use it, and it has been scrutinised by cryptographers for over a decade without a single break.',
+        'vs.t': 'And in some ways, more thorough',
+        'vs.concl': 'Same end-to-end encryption — <b>the difference is who owns the server.</b>',
+        'note.b': 'The design follows Signal\'s classic approach: negotiate a key, then encrypt with symmetric crypto. Signal\'s full implementation also includes the Double Ratchet (a new key per message for forward secrecy). Ours is a simplified version — <b>the server still cannot read anything</b>; the difference is weaker protection of past messages if a key is ever compromised.',
+        'exp1': 'Before a message leaves your phone, it is encrypted with a key that <b>only you and the recipient</b> hold.',
+        'exp2': 'The server only receives a string of random characters. Without the key, no one can put it back together — <b>the developer included</b>.',
+        'when.h': 'When to use secret chat',
+        'when.on': 'Secret chat',
+        'when.off': 'Normal chat',
+        'when.on1': 'Personal matters, gossip, venting about work',
+        'when.on2': 'ID photos, home address, passwords, codes',
+        'when.on3': 'Relationship stuff, money, medical results',
+        'when.on4': 'Anything you would only tell one person',
+        'when.off1': 'Anything you might search for later',
+        'when.off2': 'Anything you want on your next phone',
+        'when.off3': 'Work plans, announcements, file sharing',
+        'when.off4': 'Group discussions where history matters',
+        'when.rk': 'Cannot remember the rule? Ask yourself',
+        'when.rq': '"Would I be embarrassed if the server owner read this?"',
+        'when.ra1': 'Yes → secret chat',
+        'when.ra2': 'No → normal chat',
+        'to.h': '',
+        'to.k1': 'What you give up',
+        'to.k2': 'What you get',
+        'to.l1': 'Secret chats stay out of search',
+        'to.l2': 'They do not survive a new phone',
+        'to.l3': 'The server cannot recover them',
+        'to.g1': 'No one can read them, not even the host',
+        'to.g2': 'A stolen database is just noise',
+        'to.g3': 'No subpoena can produce your content',
+        'to.f': 'Need search and migration? <b>That is what normal chats are for</b> — encrypted server-side, searchable and backed up.',
+        'exp3': '',
+        'sec4': 'Previous versions',
+        'sec5': 'Changelog',
+        'log.d1': 'Nov 13', 'log.d2': 'Nov 12', 'log.d3': 'Nov 11',
+        'log.26a': 'Full page bundled in the APK — no longer depends on background download',
+        'log.26b': 'Secret chats are blocked when encryption is unavailable',
+        'log.26c': 'New environment diagnostics',
+        'log.26d': 'Log in with either your phone number or ID — no more failures when an ID looks like a phone number',
+        'log.23a': 'Anonymous questions, starred messages, multi-account switching',
+        'log.23b': 'Public channel discovery',
+        'log.20a': 'Fine-grained group permissions, invite links, slow mode',
+        'log.20b': 'Self-destruct messages, wipe for both sides, 2FA',
+        'log.20c': 'Voice speed, file previews, message virtualisation',
+        'foot.git': 'Questions or ideas? Open an issue',
+        'foot1': '<b>Qiaoqiao</b> · end-to-end encrypted',
+        'foot2': 'The server cannot read your conversations'
+      }
+    };
+
+    var root = document.documentElement;
+    function applyLang(lang){
+      var d = dict[lang] || dict.zh;
+      document.querySelectorAll('[data-i18n]').forEach(function(el){
+        var k = el.getAttribute('data-i18n');
+        if (d[k] !== undefined) el.innerHTML = d[k];
+      });
+      root.setAttribute('lang', lang === 'en' ? 'en' : 'zh-CN');
+      var btn = document.getElementById('lang-toggle');
+      if (btn) btn.textContent = lang === 'en' ? 'EN / 中' : '中 / EN';
+    }
+
+    var saved = null;
+    try { saved = localStorage.getItem(KEY); } catch(e){}
+    var startLang = saved === 'en' ? 'en' : 'zh';
+    applyLang(startLang);
+
+    var btn = document.getElementById('lang-toggle');
+    if (btn) btn.addEventListener('click', function(){
+      var cur = null;
+      try { cur = localStorage.getItem(KEY); } catch(e){}
+      cur = cur === 'en' ? 'en' : 'zh';
+      var next = cur === 'zh' ? 'en' : 'zh';
+      applyLang(next);
+      try { localStorage.setItem(KEY, next); } catch(e){}
+    });
+  })();
+
+  function fmt(b){
+    if (b < 1024) return b + 'B';
+    if (b < 1048576) return Math.round(b/1024) + 'KB';
+    return (b/1048576).toFixed(1) + 'MB';
+  }
+  // 兜底列表：接口挂了也能显示
+  var FALLBACK = [
+    { version:'2.6', file:'qiaoqiao-2.6.apk', size:181532 },
+    { version:'2.5', file:'qiaoqiao-2.5.apk', size:148883 },
+    { version:'2.4', file:'qiaoqiao-2.4.apk', size:144668 },
+    { version:'2.3', file:'qiaoqiao-2.3.apk', size:140572 },
+    { version:'2.2', file:'qiaoqiao-2.2.apk', size:136642 },
+    { version:'2.1', file:'qiaoqiao-2.1.apk', size:140440 },
+    { version:'2.0', file:'qiaoqiao-2.0.apk', size:140572 },
+    { version:'1.4', file:'qiaoqiao-1.4.apk', size:103708 },
+    { version:'1.3', file:'qiaoqiao-1.3.apk', size:103708 },
+    { version:'1.2', file:'qiaoqiao-1.2.apk', size:103708 }
+  ];
+
+  function render(list){
+    if (!list || !list.length) return;
+    var latest = list[0];
+    var btn = document.getElementById('main-btn');
+    if (btn) btn.href = latest.file;
+    var mv = document.getElementById('m-ver');
+    if (mv) mv.textContent = 'v' + (latest.version || '最新');
+    var ms = document.getElementById('m-size');
+    if (ms) ms.textContent = fmt(latest.size);
+    var qs = document.getElementById('qs-size');
+    if (qs) qs.textContent = fmt(latest.size);
+
+    var old = list.slice(1);
+    var sec = document.getElementById('old-sec');
+    var box = document.getElementById('old-list');
+    if (sec) sec.style.display = '';
+    if (box && old.length) {
+      box.innerHTML = old.map(function(k){
+        return '<a class="ver" href="' + k.file + '" download>' +
+          '<b>' + (k.version || '—') + '</b><i>' + fmt(k.size) + '</i>' +
+        '</a>';
+      }).join('');
+    }
+  }
+
+  // 先用兜底渲染，接口回来再替换
+  render(FALLBACK);
+
+  fetch('/api/download/list').then(function(r){ return r.json(); }).then(function(d){
+    var list = (d && d.list) || [];
+    if (!list.length) return;
+    render(list);
+  }).catch(function(){});
+})();
+</script>
+</body>
+</html>

@@ -10,7 +10,7 @@
  *   conversation_counters seq 分配器（事务内 +1，避免并发抢号）
  */
 import { DatabaseSync } from 'node:sqlite'
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -87,6 +87,24 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_members_user  ON conversation_members(user_id);
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
+  -- 端到端加密：用户公钥包（服务器只能存公钥，解不开任何消息）
+  -- 端到端加密：群聊 SenderKey 分发包（服务器只搬运密文）
+  CREATE TABLE IF NOT EXISTS e2ee_group_state (
+    conv_id    TEXT NOT NULL,
+    user_id    TEXT NOT NULL,   -- 谁在发
+    target_id  TEXT NOT NULL,   -- 分给谁
+    epoch      INTEGER NOT NULL,
+    payload    TEXT NOT NULL,   -- 已用一对一会话密钥加密
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (conv_id, user_id, target_id, epoch)
+  );
+
+  CREATE TABLE IF NOT EXISTS e2ee_bundles (
+    user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    bundle     TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS images (
     id         TEXT PRIMARY KEY,
     owner_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -141,6 +159,128 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS listen_state (
+    conv_id    TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    audio_id   TEXT NOT NULL,          -- 音频媒体 id
+    title      TEXT NOT NULL DEFAULT '',
+    host_id    TEXT NOT NULL,
+    position   REAL NOT NULL DEFAULT 0, -- 秒
+    playing    INTEGER NOT NULL DEFAULT 0,
+    started_at INTEGER NOT NULL,       -- 开始播放时的服务器时间
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS message_stars (
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, message_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS anon_questions (
+    id          TEXT PRIMARY KEY,
+    target_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    asker_hash  TEXT NOT NULL,        -- 提问者的匿名指纹（不可反查）
+    question    TEXT NOT NULL,
+    answer      TEXT,
+    created_at  INTEGER NOT NULL,
+    answered_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_anon_target ON anon_questions(target_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS checkins (
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day        TEXT NOT NULL,          -- YYYY-MM-DD
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, day)
+  );
+  CREATE INDEX IF NOT EXISTS idx_checkin_day ON checkins(day);
+
+  CREATE TABLE IF NOT EXISTS polls (
+    id         TEXT PRIMARY KEY,
+    conv_id    TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    creator_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    question   TEXT NOT NULL,
+    options    TEXT NOT NULL,          -- JSON 数组
+    multi      INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS poll_votes (
+    poll_id      TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    option_index INTEGER NOT NULL,
+    created_at   INTEGER NOT NULL,
+    PRIMARY KEY (poll_id, user_id, option_index)
+  );
+
+  CREATE TABLE IF NOT EXISTS friends (
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    friend_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, friend_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_friends_user ON friends(user_id);
+
+  CREATE TABLE IF NOT EXISTS friend_requests (
+    id         TEXT PRIMARY KEY,
+    from_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    to_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message    TEXT,
+    status     TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL,
+    handled_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_freq_to ON friend_requests(to_id, status);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_freq_once ON friend_requests(from_id, to_id, status);
+
+  CREATE TABLE IF NOT EXISTS reports (
+    id          TEXT PRIMARY KEY,
+    reporter_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    reporter    TEXT,
+    target_id   TEXT,
+    target_name TEXT,
+    reason      TEXT NOT NULL,
+    detail      TEXT,
+    message_id  TEXT,
+    status      TEXT NOT NULL DEFAULT 'open',
+    created_at  INTEGER NOT NULL,
+    handled_at  INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_reports_time ON reports(created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS feedback (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
+    user_name  TEXT,
+    content    TEXT NOT NULL,
+    contact    TEXT,
+    device     TEXT,
+    version    TEXT,
+    image      TEXT,
+    status     TEXT NOT NULL DEFAULT 'open',
+    reply      TEXT,
+    created_at INTEGER NOT NULL,
+    handled_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_feedback_time ON feedback(created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS message_edits (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    old_body   TEXT NOT NULL,
+    edited_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_edits_msg ON message_edits(message_id, edited_at);
+
+  CREATE TABLE IF NOT EXISTS message_reactions (
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, user_id, emoji)
+  );
+  CREATE INDEX IF NOT EXISTS idx_react_msg ON message_reactions(message_id);
+
   CREATE TABLE IF NOT EXISTS topics (
     id         TEXT PRIMARY KEY,
     conv_id    TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -177,6 +317,8 @@ function ensureColumn(table, column, ddl) {
 // 群聊
 ensureColumn('conversations', 'title', "TEXT NOT NULL DEFAULT ''")
 ensureColumn('conversations', 'owner_id', 'TEXT')
+// 密聊会话标记：1 = 走端到端加密，服务器解不开内容
+ensureColumn('conversations', 'is_secret', 'INTEGER NOT NULL DEFAULT 0')
 // 消息引用 + 撤回
 ensureColumn('messages', 'reply_to', 'TEXT')
 ensureColumn('messages', 'deleted_at', 'INTEGER')
@@ -198,10 +340,37 @@ ensureColumn('messages', 'mentions', 'TEXT')
 ensureColumn('messages', 'edited_at', 'INTEGER')
 // 消息属于哪个话题（空表示主聊天）
 ensureColumn('messages', 'topic_id', 'TEXT')
+// 阅后即焚：读后多少秒自动删除（0/空 = 不焚）
+ensureColumn('messages', 'burn_after', 'INTEGER')
+// 禁止转发：发送时勾上，别人转不出去
+ensureColumn('messages', 'no_forward', 'INTEGER NOT NULL DEFAULT 0')
+// 登录设备信息：用来做「登录设备管理」
+ensureColumn('sessions', 'device', 'TEXT')
+ensureColumn('sessions', 'ip', 'TEXT')
 // 用户对外 ID（代替手机号给别人加好友用）
 ensureColumn('users', 'im_id', 'TEXT')
 // 元老：早期注册的用户，可以自定义靓号 ID
 ensureColumn('users', 'is_veteran', 'INTEGER NOT NULL DEFAULT 0')
+// 超级管理员：只有他能任免其他管理员，且任何人都不能降他的级
+ensureColumn('users', 'is_super', 'INTEGER NOT NULL DEFAULT 0')
+// 自定义头衔：留空则显示默认（开发者 / 超级管理员）
+ensureColumn('users', 'title', 'TEXT')
+ensureColumn('users', 'title_color', 'TEXT')
+// 隐私开关：默认都开
+ensureColumn('users', 'show_online', 'INTEGER NOT NULL DEFAULT 1')
+ensureColumn('users', 'show_read', 'INTEGER NOT NULL DEFAULT 1')
+// 界面偏好
+// 两步验证：密钥（base32）+ 是否开启
+ensureColumn('users', 'totp_secret', 'TEXT')
+ensureColumn('users', 'totp_on', 'INTEGER NOT NULL DEFAULT 0')
+// 消息水印：聊天背景淡显自己的 ID，防截图外传
+ensureColumn('users', 'watermark', 'INTEGER NOT NULL DEFAULT 0')
+// 谁能给我发消息：all=所有人 friend=有过对话的人 none=谁都不行
+ensureColumn('users', 'msg_policy', 'TEXT')
+ensureColumn('users', 'font_size', 'TEXT')       // 空/normal/large/xlarge
+ensureColumn('users', 'bubble_style', 'TEXT')    // 空/round/square
+// 免打扰时间段："22:00-08:00"，空表示全天可打扰
+ensureColumn('conversation_members', 'quiet_hours', 'TEXT')
 // 朋友圈评论可以回复某条评论
 ensureColumn('moment_comments', 'reply_to', 'TEXT')
 // 朋友圈动态可以带地点
@@ -213,6 +382,12 @@ ensureColumn('conversations', 'avatar', 'TEXT')
 ensureColumn('conversations', 'pinned_msg_id', 'TEXT')
 // 消息保留秒数（0 或空 = 永久）；到点由后台任务清掉
 ensureColumn('conversations', 'ttl', 'INTEGER NOT NULL DEFAULT 0')
+// 群邀请码：进群链接用，空表示没开启
+ensureColumn('conversations', 'invite_code', 'TEXT')
+// 慢速模式：普通成员每隔几秒才能发一条（0 = 关闭）
+ensureColumn('conversations', 'slow_mode', 'INTEGER NOT NULL DEFAULT 0')
+// 频道是否公开（公开的会出现在「发现频道」里）
+ensureColumn('conversations', 'is_public', 'INTEGER NOT NULL DEFAULT 0')
 // 群内角色：member / group_admin（群主由 conversations.owner_id 决定）
 ensureColumn('conversation_members', 'role', "TEXT NOT NULL DEFAULT 'member'")
 // 群内自定义头衔（群主/开发者可设置，如「话痨」「技术顾问」）
@@ -223,6 +398,8 @@ ensureColumn('conversation_members', 'title_color', 'TEXT')
 ensureColumn('conversation_members', 'starred', 'INTEGER NOT NULL DEFAULT 0')
 // 会话分类（每个人自己的分组，空表示未分类）
 ensureColumn('conversation_members', 'folder', 'TEXT')
+// 细粒度权限：JSON 对象，空表示用默认（成员只能发消息）
+ensureColumn('conversation_members', 'perms', 'TEXT')
 
 const now = () => Date.now()
 const uid = (p) => p + randomBytes(8).toString('hex')
@@ -346,6 +523,15 @@ export function normalizePhone(raw) {
   return s
 }
 
+/** 密码强度：至少 8 位，含字母和数字 */
+export function checkPasswordStrength(pw) {
+  const s = String(pw || '')
+  if (s.length < 8) return '密码至少 8 位'
+  if (!/[a-zA-Z]/.test(s)) return '密码要包含字母'
+  if (!/[0-9]/.test(s)) return '密码要包含数字'
+  return null
+}
+
 export function register({ phone, password, name, invite }) {
   // 只有几个朋友用 —— 开放注册等于把服务器地址泄露就等于被陌生人挤进来
   const required = (process.env.INVITE_CODE || '').trim()
@@ -354,7 +540,8 @@ export function register({ phone, password, name, invite }) {
   }
   const p = normalizePhone(phone)
   const pass = String(password || '')
-  if (pass.length < 8) throw statusError(400, '密码至少 8 位')
+  const weak = checkPasswordStrength(pass)
+  if (weak) throw statusError(400, weak)
   const nick = String(name || '').trim() || '用户' + p.slice(-4)
   if (stUserByPhone.get(p)) throw statusError(409, '这个手机号已经注册过')
 
@@ -366,14 +553,25 @@ export function register({ phone, password, name, invite }) {
   return publicUser(stUserById.get(id))
 }
 
-export function login({ phone, password, imId }) {
+export function login({ phone, password, imId, totpCode }) {
   // 支持用 ID 或手机号登录
+  // 注意：不能只靠"长得像不像手机号"来分流 —— 如果有人把 ID 设成
+  // 13800008888 这种 11 位且 1 开头的数字，会被前端当成手机号，
+  // 那样用 ID 就登不进去了。所以手机号查不到时，再按 ID 试一次。
   let row
+  const idLike = String(imId || phone || '').trim()
   if (imId) {
     row = db.prepare('SELECT * FROM users WHERE im_id = ?').get(String(imId).trim())
   } else {
-    const p = normalizePhone(phone)
-    row = stUserByPhone.get(p)
+    // normalizePhone 对非手机号会抛错，先兜住，再按 ID 试
+    try {
+      row = stUserByPhone.get(normalizePhone(phone))
+    } catch (e) {
+      row = undefined
+    }
+    if (!row && idLike) {
+      row = db.prepare('SELECT * FROM users WHERE im_id = ?').get(idLike)
+    }
   }
   // 账号不存在也走一遍哈希，避免用响应时间探测哪些号注册过
   const salt = row?.salt ?? 'x'.repeat(32)
@@ -382,13 +580,39 @@ export function login({ phone, password, imId }) {
   const okLen = expect.length === actual.length
   const ok = okLen && timingSafeEqual(Buffer.from(expect, 'hex'), Buffer.from(actual, 'hex'))
   if (!row || !ok) throw statusError(401, '账号或密码不对')
+
+  // 两步验证：开了就必须带正确的 6 位码
+  if (row.totp_on) {
+    if (!totpCode) {
+      const e = statusError(401, '需要两步验证码')
+      e.needTotp = true
+      throw e
+    }
+    const secretBuf = base32Decode(row.totp_secret || '')
+    const counter = Math.floor(Date.now() / 30000)
+    const input = String(totpCode).replace(/\D/g, '')
+    let okTotp = false
+    for (let i = -1; i <= 1; i++) {
+      if (hotp(secretBuf, counter + i) === input) { okTotp = true; break }
+    }
+    if (!okTotp) {
+      const e = statusError(401, '验证码不对')
+      e.needTotp = true
+      throw e
+    }
+  }
+
   return publicUser(row)
 }
 
 /** 对外输出的用户对象，永远不带 salt / pass_hash */
 export function publicUser(row) {
   if (!row) return null
-  return { id: row.id, phone: row.phone, name: row.name, avatar: row.avatar, role: row.role || 'user', imId: row.im_id || '', isVeteran: !!row.is_veteran }
+  return { id: row.id, phone: row.phone, name: row.name, avatar: row.avatar, role: row.role || 'user', imId: row.im_id || '', isVeteran: !!row.is_veteran, isSuper: !!row.is_super, title: row.title || '', titleColor: row.title_color || '',
+    showOnline: row.show_online !== 0, showRead: row.show_read !== 0,
+    fontSize: row.font_size || 'normal', bubbleStyle: row.bubble_style || 'round',
+    watermark: row.watermark === 1,
+    msgPolicy: row.msg_policy || 'all' }
 }
 
 export function getUser(id) {
@@ -497,11 +721,119 @@ const stSession = db.prepare('SELECT * FROM sessions WHERE token = ?')
 const stTouchSession = db.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?')
 const stDeleteSession = db.prepare('DELETE FROM sessions WHERE token = ?')
 
-export function createSession(userId) {
+/** 从 User-Agent 解析出人看得懂的设备描述 */
+export function parseDevice(ua) {
+  const s = String(ua || '')
+  if (!s) return '未知设备'
+
+  let type = '设备'
+  let os = ''
+  let model = ''
+  let app = ''
+
+  // ── iPhone / iPad ──
+  if (/iPhone/i.test(s)) { type = '手机'; os = 'iOS'; model = 'iPhone' }
+  else if (/iPad/i.test(s)) { type = '平板'; os = 'iPadOS'; model = 'iPad' }
+  else if (/iPod/i.test(s)) { type = '设备'; os = 'iOS'; model = 'iPod' }
+
+  // ── Android ──
+  if (/Android/i.test(s)) {
+    const m = s.match(/Android\s+([\d.]+)/i)
+    const ver = m ? m[1] : ''
+    // 型号：Android x; 型号 Build/
+    const mm = s.match(/Android[^;]*;\s*([^;)]+?)\s*(?:Build|;|\))/i)
+    model = mm ? mm[1].trim() : ''
+    os = 'Android' + (ver ? ' ' + ver : '')
+    const isTablet = /Tablet|Pad/i.test(s) || (!/Mobile/i.test(s) && /Android/i.test(s))
+    type = isTablet ? '平板' : '手机'
+    // WebView 里跑的就是我们的 App
+    if (/;\s*wv\)/.test(s) || /Version\/[\d.]+\s+Chrome/i.test(s) && /; wv\)/.test(s)) app = '悄悄 App'
+  }
+
+  // ── Windows ──
+  if (/Windows NT 10/i.test(s)) { type = '电脑'; os = 'Windows 10/11' }
+  else if (/Windows NT 6\.3/i.test(s)) { type = '电脑'; os = 'Windows 8.1' }
+  else if (/Windows NT 6\.1/i.test(s)) { type = '电脑'; os = 'Windows 7' }
+  else if (/Windows/i.test(s) && !os) { type = '电脑'; os = 'Windows' }
+
+  // ── macOS ──
+  if (/Mac OS X|Macintosh/i.test(s) && !os) {
+    type = '电脑'
+    os = 'macOS'
+    model = 'Mac'
+  }
+
+  // ── Linux ──
+  if (/Linux/i.test(s) && !/Android/i.test(s) && !os) { type = '电脑'; os = 'Linux' }
+
+  // ── 浏览器 / App ──
+  if (!app) {
+    if (/Edg\//i.test(s)) app = 'Edge'
+    else if (/OPR\/|Opera/i.test(s)) app = 'Opera'
+    else if (/Firefox\//i.test(s)) app = 'Firefox'
+    else if (/Chrome\//i.test(s) && !/Edg|OPR/i.test(s)) app = 'Chrome'
+    else if (/Safari\//i.test(s) && !/Chrome/i.test(s)) app = 'Safari'
+    else if (/curl|node|python/i.test(s)) app = '程序'
+  }
+
+  // 组装：手机 PLK110 · Android 17 · 悄悄 App
+  const parts = []
+  if (type && type !== '设备') parts.push(type)
+  if (model && model !== type) parts.push(model)
+  if (os) parts.push(os)
+  if (app) parts.push(app)
+  return parts.length ? parts.join(' · ') : '未知设备'
+}
+
+export function createSession(userId, meta = {}) {
   const token = randomBytes(32).toString('hex')
   const t = now()
   stInsertSession.run(token, userId, t, t + SESSION_TTL, t)
+  // 记下设备，方便「登录设备管理」
+  try {
+    db.prepare('UPDATE sessions SET device = ?, ip = ? WHERE token = ?')
+      .run(parseDevice(meta.device).slice(0, 120), String(meta.ip || '').slice(0, 60), token)
+  } catch {}
   return token
+}
+
+/** 这个用户的所有登录设备 */
+export function myDevices(userId, currentToken) {
+  const rows = db.prepare(`
+    SELECT token, created_at, last_seen, device, ip
+    FROM sessions WHERE user_id = ? AND expires_at > ?
+    ORDER BY last_seen DESC LIMIT 20
+  `).all(userId, now())
+  return rows.map((r) => {
+    // 老的会话里存的是原始 UA，这里再解析一次
+    let dev = r.device || ''
+    if (dev && (dev.indexOf('Mozilla') === 0 || dev.indexOf('/') >= 0)) {
+      dev = parseDevice(dev)
+    }
+    return {
+      token: r.token.slice(0, 8) + '…',
+      isCurrent: r.token === currentToken,
+      createdAt: r.created_at,
+      lastSeen: r.last_seen,
+      device: dev || '未知设备',
+      ip: r.ip || ''
+    }
+  })
+}
+
+/** 踢掉除当前以外的所有设备 */
+export function kickOtherDevices(userId, currentToken) {
+  const r = db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(userId, currentToken)
+  return { kicked: r.changes || 0 }
+}
+
+/** 判断是不是新设备（同一 user 从没出现过的 device 串） */
+export function isNewDevice(userId, device) {
+  if (!device) return false
+  const has = db.prepare(
+    'SELECT 1 FROM sessions WHERE user_id = ? AND device = ? LIMIT 1'
+  ).get(userId, device)
+  return !has
 }
 
 export function userByToken(token) {
@@ -572,6 +904,42 @@ export function getOrCreateDirect(userA, userB) {
   return id
 }
 
+/** 密聊会话：同一对用户只有一条，uniq_key 用 secret: 前缀与普通会话区分 */
+export function getOrCreateSecret(userA, userB) {
+  if (userA === userB) throw statusError(400, '不能和自己建密聊')
+  if (!stUserById.get(userB)) throw statusError(404, '对方不存在')
+  const key = 'secret:' + [userA, userB].sort().join('|')
+  const existing = stConvByKey.get(key)
+  if (existing) {
+    if (!existing.is_secret) db.prepare('UPDATE conversations SET is_secret = 1 WHERE id = ?').run(existing.id)
+    return existing.id
+  }
+
+  const id = uid('c_')
+  const t = now()
+  db.exec('BEGIN')
+  try {
+    db.prepare(`INSERT INTO conversations (id, type, uniq_key, title, owner_id, created_at, updated_at, is_secret)
+      VALUES (?, 'direct', ?, '', NULL, ?, ?, 1)`).run(id, key, t, t)
+    stInsertMember.run(id, userA, t)
+    stInsertMember.run(id, userB, t)
+    stInsertCounter.run(id, 0)
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    const again = stConvByKey.get(key)
+    if (again) return again.id
+    throw e
+  }
+  return id
+}
+
+/** 会话是不是密聊 */
+export function isSecretConv(convId) {
+  const c = stConvById.get(convId)
+  return !!(c && c.is_secret && c.type === 'direct')
+}
+
 export function isMember(convId, userId) {
   return !!stIsMember.get(convId, userId)
 }
@@ -589,7 +957,7 @@ export function getConversation(convId) {
   return stConvById.get(convId) || null
 }
 
-export function createGroup(ownerId, name, memberIds = [], type = 'group') {
+export function createGroup(ownerId, name, memberIds = [], type = 'group', isPublic = false) {
   const ids = [...new Set([ownerId, ...memberIds.map(String)])].filter((id) => stUserById.get(id))
   if (ids.length < 2) throw statusError(400, '群聊至少要有两个人')
   if (ids.length > 200) throw statusError(400, '群成员太多')
@@ -600,6 +968,10 @@ export function createGroup(ownerId, name, memberIds = [], type = 'group') {
   try {
     // 群没有"唯一键"概念，用 group:<id> 占住 UNIQUE 约束
     stInsertConv.run(id, type, type + ':' + id, String(name || '').slice(0, 40), ownerId, t, t)
+    // 频道创建时就能选公开 / 私密
+    if (type === 'channel' && isPublic) {
+      try { db.prepare('UPDATE conversations SET is_public = 1 WHERE id = ?').run(id) } catch {}
+    }
     for (const uidStr of ids) stInsertMember.run(id, uidStr, t)
     stInsertCounter.run(id, 0)
     db.exec('COMMIT')
@@ -671,8 +1043,22 @@ export function updateGroup(convId, userId, { title, announcement, avatar }) {
     db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(String(title).slice(0, 40), convId)
   }
   if (announcement !== undefined) {
-    db.prepare('UPDATE conversations SET announcement = ? WHERE id = ?')
-      .run(String(announcement).slice(0, 500) || null, convId)
+    const text = String(announcement).slice(0, 500) || null
+    db.prepare('UPDATE conversations SET announcement = ? WHERE id = ?').run(text, convId)
+    // 发了新公告 → 往群里发一条系统提示，成员才看得到
+    if (text) {
+      try {
+        const u = stUserById.get(userId)
+        const who = u ? u.name : '管理员'
+        // 用 pat 类型做系统消息（前端有专门的居中样式）
+        sendMessage({
+          convId,
+          senderId: userId,
+          body: JSON.stringify({ from: who, to: '全体成员', suffix: '更新了群公告 📢' }),
+          kind: 'pat'
+        })
+      } catch {}
+    }
   }
   if (avatar !== undefined) {
     db.prepare('UPDATE conversations SET avatar = ? WHERE id = ?')
@@ -697,6 +1083,7 @@ export function membersOf(convId) {
       lastReadSeq: r.last_read_seq, role,
       title: r.title || '',
       titleColor: r.title_color || '',
+      perms: permsOf(convId, r.user_id),
       online: false   // 由 server 层用 hub 补真实值
     }
   })
@@ -705,8 +1092,8 @@ export function membersOf(convId) {
 /** 会话列表：带对方信息、最后一条消息、未读数 */
 const stConvsOfUser = db.prepare(`
   SELECT c.id, c.type, c.title, c.owner_id, c.created_at, c.updated_at,
-         c.announcement, c.avatar, c.ttl,
-         m.last_read_seq, m.muted, m.pinned, m.starred, m.folder
+         c.announcement, c.avatar, c.ttl, c.slow_mode, c.is_secret,
+         m.last_read_seq, m.muted, m.pinned, m.starred, m.folder, m.quiet_hours
   FROM conversations c
   JOIN conversation_members m ON m.conv_id = c.id
   WHERE m.user_id = ? AND m.hidden = 0
@@ -741,6 +1128,9 @@ export function listConversations(userId) {
       announcement: c.announcement || '',
       pinnedMsgId: c.pinned_msg_id || null,
       ttl: c.ttl || 0,
+      slowMode: c.slow_mode || 0,
+      isPublic: !!c.is_public,
+      isSecret: !!c.is_secret,
       avatar: c.avatar || '',
       ownerId: c.owner_id || null,
       peer,
@@ -770,6 +1160,7 @@ export function listConversations(userId) {
       pinned: !!c.pinned,
       starred: !!c.starred,
       folder: c.folder || '',
+      quietHours: c.quiet_hours || '',
       myLastReadSeq: c.last_read_seq,
       updatedAt: c.updated_at
     }
@@ -784,8 +1175,8 @@ const stBumpSeq = db.prepare(
   'UPDATE conversation_counters SET last_seq = last_seq + 1 WHERE conv_id = ? RETURNING last_seq'
 )
 const stInsertMessage = db.prepare(`
-  INSERT INTO messages (id, conv_id, sender_id, seq, body, kind, client_id, reply_to, created_at, mentions, topic_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO messages (id, conv_id, sender_id, seq, body, kind, client_id, reply_to, created_at, mentions, topic_id, burn_after, no_forward)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
 const stMessageByClientId = db.prepare('SELECT * FROM messages WHERE conv_id = ? AND client_id = ?')
 const stTouchConv = db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?')
@@ -824,6 +1215,23 @@ function shapeMessage(r, { withReply = true } = {}) {
       : null
   }
   msg.topicId = r.topic_id || null
+  if (r.burn_after) msg.burnAfter = r.burn_after
+  if (r.no_forward) msg.noForward = true
+
+  // 表情回应：按 emoji 聚合，谁点的也带上
+  try {
+    const rs = db.prepare(
+      'SELECT user_id, emoji FROM message_reactions WHERE message_id = ?'
+    ).all(r.id)
+    if (rs.length) {
+      const byEmoji = {}
+      for (const x of rs) {
+        if (!byEmoji[x.emoji]) byEmoji[x.emoji] = []
+        byEmoji[x.emoji].push(x.user_id)
+      }
+      msg.reactions = Object.keys(byEmoji).map((e) => ({ emoji: e, users: byEmoji[e], count: byEmoji[e].length }))
+    }
+  } catch { /* 表还没建好时忽略 */ }
 
   // 编辑过就带上时间，前端显示「已编辑」
   if (r.edited_at) msg.editedAt = r.edited_at
@@ -868,7 +1276,7 @@ function shapeMessage(r, { withReply = true } = {}) {
  * kind: text | image | voice | file
  * replyTo: 引用某条消息的 id（必须在同一个会话里）
  */
-export function sendMessage({ convId, senderId, body, kind = 'text', clientId, replyTo = null, mentions = null, topicId = null }) {
+export function sendMessage({ convId, senderId, body, kind = 'text', clientId, replyTo = null, mentions = null, topicId = null, burnAfter = 0, noForward = false }) {
   if (!isMember(convId, senderId)) throw statusError(403, '不在这个会话里')
 
   // 频道：只有群主、管理员、开发者能发
@@ -880,6 +1288,13 @@ export function sendMessage({ convId, senderId, body, kind = 'text', clientId, r
     }
   }
 
+  // 细粒度权限：被收回「发消息」就不能发
+  if (convRowChk && convRowChk.type === 'group') {
+    const ps = permsOf(convId, senderId)
+    if (!ps.includes('send')) throw statusError(403, '你在本群被禁止发言')
+    checkSlowMode(convId, senderId)
+  }
+
   const text = String(body ?? '')
 
   // @提及：过滤成字符串数组，最多 50 个
@@ -888,7 +1303,7 @@ export function sendMessage({ convId, senderId, body, kind = 'text', clientId, r
     : []
   const mentionsJson = mentionList.length ? JSON.stringify(mentionList) : null
 
-  const MEDIA_KINDS = ['image', 'voice', 'file']
+  const MEDIA_KINDS = ['image', 'voice', 'file', 'video']
   if (MEDIA_KINDS.includes(kind)) {
     // 媒体消息的 body 是 media id，必须真实存在，否则前端拿到裂图/坏文件
     const meta = imageMeta(text)
@@ -915,6 +1330,11 @@ export function sendMessage({ convId, senderId, body, kind = 'text', clientId, r
     if (peerRow && isBlocked(peerRow.user_id, senderId)) {
       throw statusError(403, '消息已发出，但被对方拒收了')
     }
+    // 陌生人消息限制：对方设了「只收好友」或「谁都不收」就拦下来
+    if (peerRow) {
+      const chk = canMessageMe(peerRow.user_id, senderId)
+      if (!chk.ok) throw statusError(403, '消息已发出，但' + (chk.reason || '对方不接收'))
+    }
   }
 
   if (clientId) {
@@ -930,7 +1350,9 @@ export function sendMessage({ convId, senderId, body, kind = 'text', clientId, r
     // 字段顺序：id, conv_id, sender_id, seq, body, kind, client_id, reply_to, created_at, mentions
     stInsertMessage.run(
       id, convId, senderId, seq, encryptBody(text), kind,
-      clientId || null, replyId, t, mentionsJson, topicId || null
+      clientId || null, replyId, t, mentionsJson, topicId || null,
+      Number(burnAfter) > 0 ? Number(burnAfter) : null,
+      noForward ? 1 : 0
     )
     stTouchConv.run(t, convId)
     db.exec('COMMIT')
@@ -980,9 +1402,18 @@ export function seqAtTime(convId, userId, ts) {
 }
 
 /** 断线重连后拉增量：sinceSeq 之后所有消息 */
+/** 会话最后一条消息（给公告之类的系统提示用） */
+export function lastMessageOf(convId) {
+  const r = stLastMessage.get(convId)
+  return r ? shapeMessage(r) : null
+}
+
 export function messagesSince(convId, userId, sinceSeq) {
   if (!isMember(convId, userId)) throw statusError(403, '不在这个会话里')
-  return stSince.all(convId, sinceSeq, 500).map(shapeMessage)
+  const rows = stSince.all(convId, sinceSeq, 500).map(shapeMessage)
+  // 服务器上这个会话现在还剩多少条（客户端拿它判断本地缓存是否过期）
+  const total = db.prepare('SELECT COUNT(*) n FROM messages WHERE conv_id = ? AND deleted = 0').get(convId).n
+  return { messages: rows, serverCount: total }
 }
 
 const stSetRead = db.prepare(`
@@ -1016,9 +1447,18 @@ export function gcMedia(mediaId) {
   if (!mediaId) return false
   const id = String(mediaId)
   if (!/^[0-9a-f]{32}$/.test(id)) return false
-  const stillMsg = db.prepare(
-    'SELECT COUNT(*) n FROM messages WHERE body = ? AND deleted = 0'
-  ).get(id).n
+
+  // messages.body 是加密存储的，必须解密后比较（之前直接比明文字符串，
+  // 导致永远匹配不上、把所有在用的媒体都判成孤儿删掉了）
+  let stillMsg = 0
+  const rows = db.prepare(
+    "SELECT body FROM messages WHERE deleted = 0 AND kind IN ('image','voice','file')"
+  ).all()
+  for (const r of rows) {
+    let plain = ''
+    try { plain = decryptBody(r.body) } catch { continue }
+    if (plain === id) { stillMsg = 1; break }
+  }
   const stillUser = db.prepare(
     "SELECT COUNT(*) n FROM users WHERE avatar LIKE '%' || ? || '%'"
   ).get(id).n
@@ -1091,10 +1531,14 @@ export function searchMessages(userId, query, { convId = null, limit = 50 } = {}
   if (!targets.length) return []
 
   const placeholders = targets.map(() => '?').join(',')
+  // 密聊会话不参与搜索（内容本来也是密文，服务器解不出来）
   const rows = db
     .prepare(
-      `SELECT * FROM messages WHERE conv_id IN (${placeholders}) AND deleted = 0 AND kind = 'text'
-       ORDER BY created_at DESC LIMIT 3000`
+      `SELECT m.* FROM messages m
+       JOIN conversations c ON c.id = m.conv_id
+       WHERE m.conv_id IN (${placeholders}) AND m.deleted = 0 AND m.kind = 'text'
+         AND COALESCE(c.is_secret, 0) = 0
+       ORDER BY m.created_at DESC LIMIT 3000`
     )
     .all(...targets)
 
@@ -1462,18 +1906,70 @@ export function isAdmin(userId) {
   return !!u && u.role === 'admin'
 }
 
-export function setRole(userId, role) {
+export function setRole(userId, role, byUserId) {
   if (!['admin', 'user'].includes(role)) throw statusError(400, '角色不合法')
-  const u = stUserById.get(userId)
-  if (!u) throw statusError(404, '用户不存在')
+  const target = stUserById.get(userId)
+  if (!target) throw statusError(404, '用户不存在')
+
+  // 开发者（is_super）的权限和头衔，谁都不能动
+  if (target.is_super) {
+    throw statusError(403, '不能修改开发者的权限或头衔')
+  }
+
+  // 操作者必须本身就是管理员
+  if (byUserId) {
+    const by = stUserById.get(byUserId)
+    if (!by || by.role !== 'admin') {
+      throw statusError(403, '权限不够')
+    }
+    // 不能改自己（防止自己把自己降级后失联）
+    if (byUserId === userId) {
+      throw statusError(403, '不能修改自己的权限')
+    }
+  }
+
   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId)
   return publicUser(stUserById.get(userId))
 }
 
+/** 设置某人的自定义头衔（空字符串表示恢复默认） */
+export function setUserTitle(userId, title, color, byUserId) {
+  const target = stUserById.get(userId)
+  if (!target) throw statusError(404, '用户不存在')
+
+  // 开发者（is_super）的头衔只有自己能改
+  if (target.is_super && byUserId && byUserId !== userId) {
+    throw statusError(403, '不能修改开发者的头衔')
+  }
+  // 非管理员不能改别人
+  if (byUserId && byUserId !== userId) {
+    const by = stUserById.get(byUserId)
+    if (!by || by.role !== 'admin') throw statusError(403, '权限不够')
+  }
+
+  const t = String(title || '').trim().slice(0, 12)
+  // 颜色可能是 linear-gradient(...)，32 个字符不够，放到 120
+  const c = color ? String(color).slice(0, 120) : null
+  db.prepare('UPDATE users SET title = ?, title_color = ? WHERE id = ?').run(t || null, c, userId)
+  return publicUser(stUserById.get(userId))
+}
+
+/** 把第一个注册的用户设为超级管理员（一次性迁移） */
+function backfillSuper() {
+  const has = db.prepare('SELECT COUNT(*) n FROM users WHERE is_super = 1').get().n
+  if (has > 0) return
+  const first = db.prepare('SELECT id FROM users ORDER BY created_at ASC LIMIT 1').get()
+  if (first) {
+    db.prepare('UPDATE users SET is_super = 1, role = ? WHERE id = ?').run('admin', first.id)
+    console.log('[db] 已将首个用户设为超级管理员')
+  }
+}
+backfillSuper()
+
 /** 管理员：所有用户 */
 export function adminListUsers() {
-  return db.prepare('SELECT id, phone, name, avatar, role, created_at, im_id FROM users ORDER BY created_at').all()
-    .map((u) => ({ id: u.id, phone: u.phone, name: u.name, avatar: u.avatar, role: u.role, createdAt: u.created_at, imId: u.im_id || '' }))
+  return db.prepare('SELECT id, phone, name, avatar, role, created_at, im_id, is_super, title, title_color FROM users ORDER BY created_at').all()
+    .map((u) => ({ id: u.id, phone: u.phone, name: u.name, avatar: u.avatar, role: u.role, createdAt: u.created_at, imId: u.im_id || '', isSuper: !!u.is_super, title: u.title || '', titleColor: u.title_color || '' }))
 }
 
 /** 管理员：所有会话（不限于自己参与的） */
@@ -1547,6 +2043,46 @@ export function adminStats() {
     moments: one('SELECT COUNT(*) n FROM moments'),
     media: one('SELECT COUNT(*) n FROM images')
   }
+}
+
+/** 管理后台：所有媒体文件（图片/语音/文件） */
+export function adminMedia() {
+  const rows = db.prepare(`
+    SELECT i.id, i.kind, i.mime, i.size, i.name, i.owner_id, u.name AS owner_name, i.created_at
+    FROM images i LEFT JOIN users u ON u.id = i.owner_id
+    ORDER BY i.created_at DESC LIMIT 200
+  `).all()
+  return rows.map((r) => ({
+    id: r.id, kind: r.kind, mime: r.mime, size: r.size, name: r.name || '',
+    ownerName: r.owner_name || '', createdAt: r.created_at
+  }))
+}
+
+/** 管理后台：所有会话里最近的若干条消息（全局视图） */
+export function adminRecentMessages(limit = 100) {
+  const rows = db.prepare(`
+    SELECT m.id, m.conv_id, m.kind, m.body, m.created_at, m.deleted,
+           m.sender_id, u.name AS sender_name,
+           c.type AS conv_type, c.title AS conv_title,
+           COALESCE(c.is_secret, 0) AS conv_secret
+    FROM messages m
+    LEFT JOIN users u ON u.id = m.sender_id
+    LEFT JOIN conversations c ON c.id = m.conv_id
+    ORDER BY m.created_at DESC LIMIT ?
+  `).all(Math.min(300, limit))
+  return rows.map((r) => ({
+    id: r.id,
+    convId: r.conv_id,
+    convName: r.conv_title || (r.conv_type === 'group' ? '群聊' : r.conv_type === 'channel' ? '频道' : '私聊'),
+    senderName: r.sender_name || '',
+    kind: r.kind,
+    // 密聊：开发者/管理后台也看不到内容
+    body: r.deleted ? '' : (r.conv_secret ? '[密聊内容，无法查看]'
+      : (() => { try { return decryptBody(r.body) } catch { return '' } })()),
+    isSecret: !!r.conv_secret,
+    deleted: !!r.deleted,
+    createdAt: r.created_at
+  }))
 }
 
 /** 转让群主。开发者可以转任何群，群主可以转自己的群 */
@@ -1688,6 +2224,11 @@ export function editMessage(messageId, userId, newBody) {
   const text = String(newBody || '').trim()
   if (!text) throw statusError(400, '内容不能为空')
   if (text.length > 4000) throw statusError(400, '消息太长')
+  // 先把旧内容存进历史
+  try {
+    db.prepare('INSERT INTO message_edits (message_id, old_body, edited_at) VALUES (?, ?, ?)')
+      .run(row.id, row.body, now())
+  } catch {}
   db.prepare('UPDATE messages SET body = ?, edited_at = ? WHERE id = ?')
     .run(encryptBody(text), now(), row.id)
   return shapeMessage(stMessageById.get(row.id))
@@ -1744,13 +2285,133 @@ export function setConversationTtl(convId, userId, seconds) {
  * 由 server 里的定时任务周期性调用。
  */
 /** 扫一遍所有媒体，把没人引用的删掉（定时任务用） */
-export function purgeOrphanMedia() {
-  const rows = db.prepare('SELECT id FROM images').all()
-  let removed = 0
-  for (const r of rows) {
-    if (gcMedia(r.id)) removed++
+/** 收集所有正在被引用的媒体 id */
+export function usedMediaIds() {
+  const used = new Set()
+  try {
+    for (const r of db.prepare("SELECT body FROM messages WHERE deleted = 0 AND kind IN ('image','voice','file')").all()) {
+      let plain = ''
+      try { plain = decryptBody(r.body) } catch { continue }
+      const real = plain.indexOf('E2EEFILE.') === 0 ? plain.slice(9) : plain
+      if (/^[0-9a-f]{32}$/.test(real)) used.add(real)
+    }
+  } catch {}
+  for (const r of db.prepare("SELECT avatar FROM users WHERE avatar IS NOT NULL AND avatar <> ''").all()) {
+    const m = String(r.avatar).match(/[0-9a-f]{32}/); if (m) used.add(m[0])
   }
-  return removed
+  for (const r of db.prepare("SELECT avatar FROM conversations WHERE avatar IS NOT NULL AND avatar <> ''").all()) {
+    const m = String(r.avatar).match(/[0-9a-f]{32}/); if (m) used.add(m[0])
+  }
+  try {
+    for (const r of db.prepare('SELECT url FROM moment_images').all()) {
+      const m = String(r.url).match(/[0-9a-f]{32}/); if (m) used.add(m[0])
+    }
+  } catch {}
+  return used
+}
+
+/** 预览：不清，只算能清多少 */
+export function gcPreview() {
+  const used = new Set()
+  try {
+    for (const r of db.prepare("SELECT body FROM messages WHERE deleted = 0 AND kind IN ('image','voice','file')").all()) {
+      let plain = ''
+      try { plain = decryptBody(r.body) } catch { continue }
+      // 密聊文件 body 带 E2EEFILE. 前缀，也要把真实 id 算进去
+      const real = plain.indexOf('E2EEFILE.') === 0 ? plain.slice(9) : plain
+      if (/^[0-9a-f]{32}$/.test(real)) used.add(real)
+    }
+  } catch {}
+  for (const r of db.prepare("SELECT avatar FROM users WHERE avatar IS NOT NULL AND avatar <> ''").all()) {
+    const m = String(r.avatar).match(/[0-9a-f]{32}/); if (m) used.add(m[0])
+  }
+  for (const r of db.prepare("SELECT avatar FROM conversations WHERE avatar IS NOT NULL AND avatar <> ''").all()) {
+    const m = String(r.avatar).match(/[0-9a-f]{32}/); if (m) used.add(m[0])
+  }
+  try {
+    for (const r of db.prepare('SELECT url FROM moment_images').all()) {
+      const m = String(r.url).match(/[0-9a-f]{32}/); if (m) used.add(m[0])
+    }
+  } catch {}
+
+  const cutoff = now() - 7 * 86400000
+  let canRemove = 0, tooNew = 0, freed = 0, total = 0, usedCount = 0
+  for (const r of db.prepare('SELECT id, created_at, size FROM images').all()) {
+    total++
+    if (used.has(r.id)) { usedCount++; continue }
+    if (r.created_at && r.created_at > cutoff) { tooNew++; continue }
+    canRemove++
+    freed += (r.size || 0)
+  }
+  return { canRemove, tooNew, usedCount, freedBytes: freed, totalFiles: total }
+}
+
+export function purgeOrphanMedia() {
+  // 先一次性收集所有被引用的媒体 id（消息要解密，头像直接取）
+  const used = new Set()
+  try {
+    for (const r of db.prepare(
+      "SELECT body FROM messages WHERE deleted = 0 AND kind IN ('image','voice','file')"
+    ).all()) {
+      let plain = ''
+      try { plain = decryptBody(r.body) } catch { continue }
+      // 密聊文件 body 带 E2EEFILE. 前缀，剥掉再算
+      const real = plain.indexOf('E2EEFILE.') === 0 ? plain.slice(9) : plain
+      if (/^[0-9a-f]{32}$/.test(real)) used.add(real)
+    }
+  } catch { /* 忽略 */ }
+  for (const r of db.prepare("SELECT avatar FROM users WHERE avatar IS NOT NULL AND avatar <> ''").all()) {
+    const m = String(r.avatar).match(/[0-9a-f]{32}/); if (m) used.add(m[0])
+  }
+  for (const r of db.prepare("SELECT avatar FROM conversations WHERE avatar IS NOT NULL AND avatar <> ''").all()) {
+    const m = String(r.avatar).match(/[0-9a-f]{32}/); if (m) used.add(m[0])
+  }
+  try {
+    for (const r of db.prepare('SELECT url FROM moment_images').all()) {
+      const m = String(r.url).match(/[0-9a-f]{32}/); if (m) used.add(m[0])
+    }
+  } catch { /* 忽略 */ }
+  try {
+    for (const r of db.prepare("SELECT value FROM app_settings WHERE value LIKE '%/api/images/%'").all()) {
+      const m = String(r.value).match(/[0-9a-f]{32}/); if (m) used.add(m[0])
+    }
+  } catch { /* 忽略 */ }
+
+  // 安全网：只删「超过 7 天」的孤儿文件。
+  // 防止刚上传、消息还没落库的文件被误删（上次就是这么弄丢的）
+  const cutoff = now() - 7 * 86400000
+  let removed = 0
+  let skippedNew = 0
+  let freedBytes = 0
+  let totalFiles = 0
+  for (const r of db.prepare('SELECT id, created_at, size FROM images').all()) {
+    totalFiles++
+    if (used.has(r.id)) continue                    // 有引用，跳过
+    if (r.created_at && r.created_at > cutoff) {    // 太新，先留着
+      skippedNew++
+      continue
+    }
+    if (removeMediaRow(r.id)) { removed++; freedBytes += (r.size || 0) }
+  }
+  return { removed, skippedNew, freedBytes, totalFiles }
+}
+
+/** 清理阅后即焚：被读过且超过 burn_after 秒的消息删掉 */
+export function purgeBurned() {
+  const rows = db.prepare(
+    "SELECT id, conv_id, burn_after, created_at FROM messages WHERE burn_after > 0 AND deleted = 0"
+  ).all()
+  let n = 0
+  const t = now()
+  for (const r of rows) {
+    if (t - r.created_at > r.burn_after * 1000) {
+      try {
+        db.prepare('DELETE FROM messages WHERE id = ?').run(r.id)
+        n++
+      } catch {}
+    }
+  }
+  return n
 }
 
 export function purgeExpired() {
@@ -1764,6 +2425,1326 @@ export function purgeExpired() {
     removed += del.changes || 0
   }
   return removed
+}
+
+/** 给消息加/取消一个表情回应 */
+export function toggleReaction(messageId, userId, emoji) {
+  const row = stMessageById.get(String(messageId))
+  if (!row) throw statusError(404, '消息不存在')
+  if (!isMember(row.conv_id, userId)) throw statusError(403, '不在这个会话里')
+  const e = String(emoji || '').slice(0, 8)
+  if (!e) throw statusError(400, '表情不能为空')
+
+  const has = db.prepare(
+    'SELECT 1 FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?'
+  ).get(row.id, userId, e)
+  if (has) {
+    db.prepare('DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?')
+      .run(row.id, userId, e)
+  } else {
+    db.prepare('INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)')
+      .run(row.id, userId, e, now())
+  }
+  return { message: shapeMessage(stMessageById.get(row.id), { withReply: false }) }
+}
+
+/* ------------------------------------------------------------------ */
+/*  一起听                                                              */
+/* ------------------------------------------------------------------ */
+
+/** 读一个会话当前的播放状态（把「已经播了多久」算出来） */
+export function getListenState(convId, userId) {
+  if (!isMember(convId, userId)) throw statusError(403, '不在这个会话里')
+  const r = db.prepare('SELECT * FROM listen_state WHERE conv_id = ?').get(convId)
+  if (!r) return null
+  const host = stUserById.get(r.host_id)
+  let pos = r.position
+  if (r.playing) {
+    // 正在播：当前位置 = 记录位置 + 已经过去的时间
+    pos = r.position + (now() - r.started_at) / 1000
+  }
+  return {
+    convId: r.conv_id,
+    audioId: r.audio_id,
+    title: r.title,
+    hostName: host ? host.name : '',
+    hostId: r.host_id,
+    playing: !!r.playing,
+    position: Math.max(0, pos),
+    updatedAt: r.updated_at
+  }
+}
+
+/** 换歌 / 重新开始 */
+export function setListenTrack(convId, userId, audioId, title) {
+  if (!isMember(convId, userId)) throw statusError(403, '不在这个会话里')
+  const id = String(audioId || '')
+  if (!/^[0-9a-f]{32}$/.test(id)) throw statusError(400, '音频不对')
+  db.prepare(`INSERT INTO listen_state (conv_id, audio_id, title, host_id, position, playing, started_at, updated_at)
+              VALUES (?, ?, ?, ?, 0, 1, ?, ?)
+              ON CONFLICT(conv_id) DO UPDATE SET
+                audio_id = excluded.audio_id, title = excluded.title, host_id = excluded.host_id,
+                position = 0, playing = 1, started_at = excluded.started_at, updated_at = excluded.updated_at`)
+    .run(convId, id, String(title || '').slice(0, 40), userId, now(), now())
+  return getListenState(convId, userId)
+}
+
+/** 播放/暂停/跳转 */
+export function controlListen(convId, userId, action, position) {
+  if (!isMember(convId, userId)) throw statusError(403, '不在这个会话里')
+  const r = db.prepare('SELECT * FROM listen_state WHERE conv_id = ?').get(convId)
+  if (!r) throw statusError(404, '还没有在听的歌')
+  const t = now()
+
+  if (action === 'pause') {
+    const pos = r.playing ? r.position + (t - r.started_at) / 1000 : r.position
+    db.prepare('UPDATE listen_state SET position = ?, playing = 0, updated_at = ? WHERE conv_id = ?')
+      .run(pos, t, convId)
+  } else if (action === 'play') {
+    db.prepare('UPDATE listen_state SET playing = 1, started_at = ?, updated_at = ? WHERE conv_id = ?')
+      .run(t, t, convId)
+  } else if (action === 'seek') {
+    const pos = Math.max(0, Number(position) || 0)
+    db.prepare('UPDATE listen_state SET position = ?, started_at = ?, updated_at = ? WHERE conv_id = ?')
+      .run(pos, t, t, convId)
+  } else if (action === 'stop') {
+    db.prepare('DELETE FROM listen_state WHERE conv_id = ?').run(convId)
+    return null
+  }
+  return getListenState(convId, userId)
+}
+
+/** 批量撤回/删除自己的消息 */
+export function deleteMessages(ids, userId) {
+  const list = Array.isArray(ids) ? ids.slice(0, 100) : []
+  let done = 0
+  for (const id of list) {
+    try {
+      const row = stMessageById.get(String(id))
+      if (!row) continue
+      if (row.sender_id !== userId) continue
+      if (row.deleted) continue
+      stSetDeleted.run(now(), userId, row.id)
+      done++
+    } catch { /* 跳过 */ }
+  }
+  return { deleted: done }
+}
+
+/* ------------------------------------------------------------------ */
+/*  管理后台：用户行为分析                                              */
+/* ------------------------------------------------------------------ */
+
+export function adminUserActivity(userId, days = 30) {
+  const u = stUserById.get(String(userId))
+  if (!u) throw statusError(404, '用户不存在')
+
+  const since = now() - days * 86400000
+
+  const total = db.prepare(
+    'SELECT COUNT(*) n FROM messages WHERE sender_id = ? AND deleted = 0'
+  ).get(u.id).n
+
+  const recent = db.prepare(
+    'SELECT COUNT(*) n FROM messages WHERE sender_id = ? AND deleted = 0 AND created_at >= ?'
+  ).get(u.id, since).n
+
+  // 按天统计（最近 14 天）
+  const perDay = []
+  for (let i = 13; i >= 0; i--) {
+    const d0 = new Date(Date.now() - i * 86400000)
+    d0.setHours(0, 0, 0, 0)
+    const d1 = d0.getTime() + 86400000
+    const c = db.prepare(
+      'SELECT COUNT(*) n FROM messages WHERE sender_id = ? AND deleted = 0 AND created_at >= ? AND created_at < ?'
+    ).get(u.id, d0.getTime(), d1).n
+    perDay.push({ day: (d0.getMonth() + 1) + '/' + d0.getDate(), count: c })
+  }
+
+  // 活跃时段（0-23 点分布）
+  const hours = new Array(24).fill(0)
+  const rows = db.prepare(
+    'SELECT created_at FROM messages WHERE sender_id = ? AND deleted = 0 AND created_at >= ?'
+  ).all(u.id, since)
+  for (const r of rows) {
+    const h = new Date(r.created_at).getHours()
+    if (h >= 0 && h < 24) hours[h]++
+  }
+
+  // 最活跃的几个会话
+  const topConvs = db.prepare(`
+    SELECT conv_id, COUNT(*) n FROM messages
+    WHERE sender_id = ? AND deleted = 0
+    GROUP BY conv_id ORDER BY n DESC LIMIT 5
+  `).all(u.id).map((r) => {
+    let name = '会话'
+    try {
+      const c = stConvById.get(r.conv_id)
+      if (c) {
+        if (c.type === 'group' || c.type === 'channel') name = c.title || '群聊'
+        else {
+          const p = db.prepare(`
+            SELECT u2.name FROM conversation_members cm JOIN users u2 ON u2.id = cm.user_id
+            WHERE cm.conv_id = ? AND cm.user_id <> ? LIMIT 1
+          `).get(c.id, u.id)
+          name = p ? p.name : '私聊'
+        }
+      }
+    } catch {}
+    return { convId: r.conv_id, name, count: r.n }
+  })
+
+  // 撤回、被删
+  const recalled = db.prepare(
+    'SELECT COUNT(*) n FROM messages WHERE sender_id = ? AND deleted = 1'
+  ).get(u.id).n
+
+  return {
+    user: publicUser(u),
+    total, recent, recalled,
+    perDay,
+    hours,
+    topConvs
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  好友关系                                                            */
+/* ------------------------------------------------------------------ */
+
+export function isFriend(a, b) {
+  return !!db.prepare('SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ?').get(String(a), String(b))
+}
+
+function makeFriends(a, b) {
+  const t = now()
+  const st = db.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id, created_at) VALUES (?, ?, ?)')
+  st.run(String(a), String(b), t)
+  st.run(String(b), String(a), t)
+}
+
+/** 发好友申请 */
+export function sendFriendRequest(fromId, toId, message) {
+  if (String(fromId) === String(toId)) throw statusError(400, '不能加自己')
+  const target = stUserById.get(String(toId))
+  if (!target) throw statusError(404, '用户不存在')
+  if (isFriend(fromId, toId)) return { status: 'already_friend' }
+  if (isBlocked(toId, fromId)) throw statusError(403, '对方不接收你的申请')
+
+  // 已经申请过就别重复
+  const pending = db.prepare(
+    "SELECT * FROM friend_requests WHERE from_id = ? AND to_id = ? AND status = 'pending'"
+  ).get(String(fromId), String(toId))
+  if (pending) return { status: 'pending', id: pending.id }
+
+  // 如果对方也申请过我 → 直接互相成为好友
+  const reverse = db.prepare(
+    "SELECT * FROM friend_requests WHERE from_id = ? AND to_id = ? AND status = 'pending'"
+  ).get(String(toId), String(fromId))
+  if (reverse) {
+    db.prepare("UPDATE friend_requests SET status = 'accepted', handled_at = ? WHERE id = ?").run(now(), reverse.id)
+    makeFriends(fromId, toId)
+    return { status: 'accepted' }
+  }
+
+  const id = 'fr_' + randomBytes(8).toString('hex')
+  db.prepare(
+    'INSERT INTO friend_requests (id, from_id, to_id, message, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, String(fromId), String(toId), String(message || '').slice(0, 200) || null, now())
+  return { status: 'sent', id }
+}
+
+/** 同意 / 拒绝 */
+export function respondFriendRequest(requestId, userId, accept) {
+  const r = db.prepare('SELECT * FROM friend_requests WHERE id = ?').get(String(requestId))
+  if (!r) throw statusError(404, '申请不存在')
+  if (r.to_id !== userId) throw statusError(403, '这不是给你的申请')
+  if (r.status !== 'pending') throw statusError(400, '已经处理过了')
+
+  if (accept) {
+    db.prepare("UPDATE friend_requests SET status = 'accepted', handled_at = ? WHERE id = ?").run(now(), r.id)
+    makeFriends(r.from_id, r.to_id)
+    return { status: 'accepted' }
+  }
+  db.prepare("UPDATE friend_requests SET status = 'rejected', handled_at = ? WHERE id = ?").run(now(), r.id)
+  return { status: 'rejected' }
+}
+
+/** 我收到的好友申请 */
+export function myFriendRequests(userId) {
+  const rows = db.prepare(`
+    SELECT r.*, u.name AS from_name, u.avatar AS from_avatar, u.im_id AS from_im_id
+    FROM friend_requests r LEFT JOIN users u ON u.id = r.from_id
+    WHERE r.to_id = ? AND r.status = 'pending'
+    ORDER BY r.created_at DESC LIMIT 50
+  `).all(userId)
+  return rows.map((r) => ({
+    id: r.id,
+    fromId: r.from_id,
+    fromName: r.from_name || '未知',
+    fromAvatar: r.from_avatar || '',
+    fromImId: r.from_im_id || '',
+    message: r.message || '',
+    createdAt: r.created_at
+  }))
+}
+
+/** 我的好友列表 */
+export function listFriends(userId) {
+  const rows = db.prepare(`
+    SELECT u.id, u.name, u.avatar, u.im_id, u.phone, u.title, u.title_color, f.created_at
+    FROM friends f JOIN users u ON u.id = f.friend_id
+    WHERE f.user_id = ?
+    ORDER BY f.created_at DESC
+  `).all(userId)
+  return rows.map((u) => publicUser(u))
+}
+
+/** 我和某人之间的好友状态 */
+export function friendStatus(a, b) {
+  if (isFriend(a, b)) return { status: 'friend' }
+  const out = db.prepare(
+    "SELECT id FROM friend_requests WHERE from_id = ? AND to_id = ? AND status = 'pending'"
+  ).get(String(a), String(b))
+  if (out) return { status: 'requested', requestId: out.id }
+  const inc = db.prepare(
+    "SELECT id FROM friend_requests WHERE from_id = ? AND to_id = ? AND status = 'pending'"
+  ).get(String(b), String(a))
+  if (inc) return { status: 'incoming', requestId: inc.id }
+  return { status: 'none' }
+}
+
+/* ------------------------------------------------------------------ */
+/*  举报                                                                */
+/* ------------------------------------------------------------------ */
+
+export function submitReport(userId, { targetId, targetName, reason, detail, messageId } = {}) {
+  const why = String(reason || '').trim()
+  if (!why) throw statusError(400, '选个举报原因')
+  const u = userId ? stUserById.get(userId) : null
+  const id = 'rp_' + randomBytes(8).toString('hex')
+  let tname = String(targetName || '')
+  if (!tname && targetId) {
+    const t = stUserById.get(String(targetId))
+    tname = t ? t.name : ''
+  }
+  db.prepare(`
+    INSERT INTO reports (id, reporter_id, reporter, target_id, target_name, reason, detail, message_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, userId || null, u ? u.name : '',
+    String(targetId || '') || null, tname || null,
+    why.slice(0, 50), String(detail || '').slice(0, 500) || null,
+    String(messageId || '') || null, now()
+  )
+  return { id }
+}
+
+export function listReports(limit = 100) {
+  const rows = db.prepare('SELECT * FROM reports ORDER BY created_at DESC LIMIT ?')
+    .all(Math.min(300, Number(limit) || 100))
+  return rows.map((r) => ({
+    id: r.id,
+    reporter: r.reporter || '匿名',
+    targetName: r.target_name || '未知',
+    targetId: r.target_id || '',
+    reason: r.reason,
+    detail: r.detail || '',
+    messageId: r.message_id || '',
+    status: r.status,
+    createdAt: r.created_at,
+    handledAt: r.handled_at || null
+  }))
+}
+
+export function handleReport(id, action) {
+  const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(String(id))
+  if (!r) throw statusError(404, '举报不存在')
+  db.prepare('UPDATE reports SET status = ?, handled_at = ? WHERE id = ?')
+    .run(String(action || 'done').slice(0, 20), now(), r.id)
+  return { ok: true }
+}
+
+/* ------------------------------------------------------------------ */
+/*  问题反馈                                                            */
+/* ------------------------------------------------------------------ */
+
+export function submitFeedback(userId, { content, contact, device, version, image } = {}) {
+  const text = String(content || '').trim()
+  if (!text) throw statusError(400, '写点什么再提交')
+  if (text.length > 2000) throw statusError(400, '太长了，精简一下')
+  const u = userId ? stUserById.get(userId) : null
+  const id = 'fb_' + randomBytes(8).toString('hex')
+  db.prepare(`
+    INSERT INTO feedback (id, user_id, user_name, content, contact, device, version, image, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, userId || null, u ? u.name : '未登录用户',
+    text, String(contact || '').slice(0, 100) || null,
+    String(device || '').slice(0, 200) || null,
+    String(version || '').slice(0, 30) || null,
+    String(image || '').slice(0, 100) || null,
+    now()
+  )
+  return { id }
+}
+
+export function listFeedback(limit = 100) {
+  const rows = db.prepare(
+    'SELECT * FROM feedback ORDER BY created_at DESC LIMIT ?'
+  ).all(Math.min(300, Number(limit) || 100))
+  return rows.map((r) => ({
+    id: r.id,
+    userName: r.user_name || '匿名',
+    content: r.content,
+    contact: r.contact || '',
+    device: r.device || '',
+    version: r.version || '',
+    image: r.image || '',
+    status: r.status,
+    reply: r.reply || '',
+    createdAt: r.created_at,
+    handledAt: r.handled_at || null
+  }))
+}
+
+export function replyFeedback(id, replyText) {
+  const r = db.prepare('SELECT * FROM feedback WHERE id = ?').get(String(id))
+  if (!r) throw statusError(404, '反馈不存在')
+  db.prepare('UPDATE feedback SET reply = ?, status = ?, handled_at = ? WHERE id = ?')
+    .run(String(replyText || '').slice(0, 1000), 'done', now(), r.id)
+  return { ok: true }
+}
+
+/* ------------------------------------------------------------------ */
+/*  个人主页                                                            */
+/* ------------------------------------------------------------------ */
+
+export function userProfile(targetId, viewerId) {
+  const u = stUserById.get(String(targetId))
+  if (!u) throw statusError(404, '用户不存在')
+
+  // 共同群聊
+  const commonGroups = db.prepare(`
+    SELECT c.id, c.title, c.avatar, c.type
+    FROM conversations c
+    JOIN conversation_members m1 ON m1.conv_id = c.id AND m1.user_id = ?
+    JOIN conversation_members m2 ON m2.conv_id = c.id AND m2.user_id = ?
+    WHERE c.type IN ('group','channel')
+    LIMIT 20
+  `).all(String(targetId), viewerId).map((c) => ({
+    id: c.id, title: c.title || '群聊', avatar: c.avatar || '', type: c.type
+  }))
+
+  // 和我的消息数
+  let msgCount = 0
+  try {
+    const conv = getOrCreateDirect(viewerId, String(targetId))
+    msgCount = db.prepare('SELECT COUNT(*) n FROM messages WHERE conv_id = ? AND deleted = 0').get(conv).n
+  } catch {}
+
+  return {
+    user: publicUser(u),
+    commonGroups,
+    messageCount: msgCount,
+    isFriend: true
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  撤回记录（管理后台用）                                              */
+/* ------------------------------------------------------------------ */
+
+export function adminRecallLog(limit = 200) {
+  const rows = db.prepare(`
+    SELECT m.*, u.name AS sender_name, COALESCE(c.is_secret, 0) AS conv_secret
+    FROM messages m
+    LEFT JOIN users u ON u.id = m.sender_id
+    LEFT JOIN conversations c ON c.id = m.conv_id
+    WHERE m.deleted = 1
+    ORDER BY m.deleted_at DESC, m.created_at DESC
+    LIMIT ?
+  `).all(Math.min(500, Number(limit) || 200))
+
+  return rows.map((r) => {
+    // 原内容：body 加密过，这里解出来
+    let original = ''
+    if (r.conv_secret) original = '[密聊内容，无法查看]'
+    else { try { original = decryptBody(r.body) } catch { original = '' } }
+
+    const sender = r.sender_name || '未知'
+    let deleter = ''
+    if (r.deleted_by) {
+      const u = stUserById.get(r.deleted_by)
+      deleter = u ? u.name : '未知'
+    }
+
+    // 会话名
+    let convName = ''
+    try {
+      const c = stConvById.get(r.conv_id)
+      if (c) {
+        if (c.type === 'group' || c.type === 'channel') convName = c.title || '群聊'
+        else {
+          const names = db.prepare(`
+            SELECT u.name FROM conversation_members cm JOIN users u ON u.id = cm.user_id
+            WHERE cm.conv_id = ? LIMIT 2
+          `).all(c.id).map((x) => x.name)
+          convName = names.join(' ⇄ ') || '私聊'
+        }
+      }
+    } catch {}
+
+    return {
+      id: r.id,
+      convId: r.conv_id,
+      convName,
+      kind: r.kind,
+      senderName: sender,
+      deleterName: deleter,
+      original,
+      createdAt: r.created_at,
+      deletedAt: r.deleted_at || null
+    }
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/*  双向撤回：一键清空整个会话（双方设备上的都会消失）                  */
+/* ------------------------------------------------------------------ */
+
+/** 清空会话里所有消息。返回被删的媒体 id，供调用方删文件 */
+export function purgeConversation(convId, userId) {
+  const conv = stConvById.get(convId)
+  if (!conv) throw statusError(404, '会话不存在')
+  if (!isMember(convId, userId)) throw statusError(403, '不在这个会话里')
+
+  // 收集要删的媒体文件
+  const mediaIds = []
+  const rows = db.prepare(
+    "SELECT body, kind FROM messages WHERE conv_id = ? AND kind IN ('image','voice','file','video')"
+  ).all(convId)
+  for (const r of rows) {
+    try {
+      const id = decryptBody(r.body)
+      if (id) mediaIds.push(id)
+    } catch {}
+  }
+
+  // 硬删（不是软删）：双方都拿不到，服务器也不留
+  const info = db.prepare('DELETE FROM messages WHERE conv_id = ?').run(convId)
+  try { db.prepare('DELETE FROM message_reactions WHERE message_id NOT IN (SELECT id FROM messages)').run() } catch {}
+  try { db.prepare('DELETE FROM message_edits WHERE message_id NOT IN (SELECT id FROM messages)').run() } catch {}
+  try { db.prepare('DELETE FROM message_stars WHERE message_id NOT IN (SELECT id FROM messages)').run() } catch {}
+  try { db.prepare('UPDATE conversations SET pinned_msg_id = NULL WHERE id = ?').run(convId) } catch {}
+
+  return { deleted: info.changes || 0, mediaIds }
+}
+
+/* ------------------------------------------------------------------ */
+/*  群成员搜索                                                          */
+/* ------------------------------------------------------------------ */
+
+export function searchMembers(convId, userId, keyword) {
+  if (!isMember(convId, userId)) throw statusError(403, '不在这个会话里')
+  const q = String(keyword || '').trim().toLowerCase()
+  const all = membersOf(convId)
+  if (!q) return all
+  return all.filter((m) =>
+    String(m.name || '').toLowerCase().includes(q) ||
+    String(m.imId || '').includes(q)
+  )
+}
+
+/** 一条消息的编辑历史（解密后的旧内容） */
+export function messageEditHistory(messageId, userId) {
+  const row = stMessageById.get(String(messageId))
+  if (!row) throw statusError(404, '消息不存在')
+  if (!isMember(row.conv_id, userId)) throw statusError(403, '不在这个会话里')
+  const rows = db.prepare(
+    'SELECT old_body, edited_at FROM message_edits WHERE message_id = ? ORDER BY edited_at ASC'
+  ).all(row.id)
+  return rows.map((r) => {
+    let body = ''
+    try { body = decryptBody(r.old_body) } catch {}
+    return { body, at: r.edited_at }
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/*  两步验证（TOTP，标准 30 秒 / 6 位，兼容 Google Authenticator）       */
+/* ------------------------------------------------------------------ */
+
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+
+function base32Encode(buf) {
+  let bits = 0, value = 0, out = ''
+  for (const b of buf) {
+    value = (value << 8) | b
+    bits += 8
+    while (bits >= 5) {
+      out += B32[(value >>> (bits - 5)) & 31]
+      bits -= 5
+    }
+  }
+  if (bits > 0) out += B32[(value << (5 - bits)) & 31]
+  return out
+}
+
+function base32Decode(str) {
+  const clean = String(str || '').toUpperCase().replace(/[^A-Z2-7]/g, '')
+  let bits = 0, value = 0
+  const out = []
+  for (const ch of clean) {
+    const idx = B32.indexOf(ch)
+    if (idx < 0) continue
+    value = (value << 5) | idx
+    bits += 5
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 255)
+      bits -= 8
+    }
+  }
+  return Buffer.from(out)
+}
+
+function hotp(secretBuf, counter) {
+  const buf = Buffer.alloc(8)
+  buf.writeUInt32BE(Math.floor(counter / 0x100000000), 0)
+  buf.writeUInt32BE(counter >>> 0, 4)
+  const h = createHmac('sha1', secretBuf).update(buf).digest()
+  const off = h[h.length - 1] & 0x0f
+  const code = ((h[off] & 0x7f) << 24) | (h[off + 1] << 16) | (h[off + 2] << 8) | h[off + 3]
+  return String(code % 1000000).padStart(6, '0')
+}
+
+/** 生成新密钥 */
+export function setupTotp(userId) {
+  const secret = base32Encode(randomBytes(20))
+  db.prepare('UPDATE users SET totp_secret = ? WHERE id = ?').run(secret, userId)
+  const u = stUserById.get(userId)
+  const label = encodeURIComponent('悄悄:' + (u.im_id || u.name || ''))
+  const issuer = encodeURIComponent('悄悄')
+  return {
+    secret,
+    uri: `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&period=30&digits=6`
+  }
+}
+
+/** 用验证码开启 */
+export function enableTotp(userId, code) {
+  const u = stUserById.get(userId)
+  if (!u || !u.totp_secret) throw statusError(400, '先生成密钥')
+  if (!verifyTotp(userId, code)) throw statusError(400, '验证码不对')
+  db.prepare('UPDATE users SET totp_on = 1 WHERE id = ?').run(userId)
+  return { totpOn: true }
+}
+
+/** 关闭两步验证（要输密码） */
+export function disableTotp(userId, password) {
+  const u = stUserById.get(userId)
+  if (!u) throw statusError(404, '用户不存在')
+  const actual = hashPassword(String(password || ''), u.salt)
+  const ok = u.pass_hash && u.pass_hash.length === actual.length &&
+    timingSafeEqual(Buffer.from(u.pass_hash, 'hex'), Buffer.from(actual, 'hex'))
+  if (!ok) throw statusError(403, '密码不对')
+  db.prepare('UPDATE users SET totp_on = 0, totp_secret = NULL WHERE id = ?').run(userId)
+  return { totpOn: false }
+}
+
+/** 验证一个 6 位码（允许前后 1 个时间窗） */
+export function verifyTotp(userId, code) {
+  const u = stUserById.get(userId)
+  if (!u || !u.totp_secret) return false
+  const secretBuf = base32Decode(u.totp_secret)
+  const counter = Math.floor(Date.now() / 30000)
+  const input = String(code || '').replace(/\D/g, '')
+  for (let i = -1; i <= 1; i++) {
+    if (hotp(secretBuf, counter + i) === input) return true
+  }
+  return false
+}
+
+export function isTotpOn(userId) {
+  const u = stUserById.get(userId)
+  return !!(u && u.totp_on)
+}
+
+/* ------------------------------------------------------------------ */
+/*  账号注销                                                            */
+/* ------------------------------------------------------------------ */
+
+export function deleteAccount(userId, password) {
+  const u = stUserById.get(userId)
+  if (!u) throw statusError(404, '用户不存在')
+  const actual = hashPassword(String(password || ''), u.salt)
+  const ok = u.pass_hash && u.pass_hash.length === actual.length &&
+    timingSafeEqual(Buffer.from(u.pass_hash, 'hex'), Buffer.from(actual, 'hex'))
+  if (!ok) throw statusError(403, '密码不对')
+  // 不允许注销最后一个开发者
+  if (u.role === 'admin') {
+    const admins = db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin'").get().n
+    if (admins <= 1) throw statusError(400, '这是唯一的管理员，不能注销')
+  }
+  // 删除用户（级联删除会话成员、消息、会话等）
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId)
+  return { ok: true }
+}
+
+/* ------------------------------------------------------------------ */
+/*  发现公开频道                                                        */
+/* ------------------------------------------------------------------ */
+
+export function listPublicChannels(userId, keyword) {
+  const q = String(keyword || '').trim()
+  const like = '%' + q + '%'
+  const rows = db.prepare(`
+    SELECT c.id, c.title, c.avatar, c.created_at,
+           (SELECT COUNT(*) FROM conversation_members m2 WHERE m2.conv_id = c.id) AS member_count,
+           (SELECT COUNT(*) FROM messages mm WHERE mm.conv_id = c.id AND mm.deleted = 0) AS msg_count
+    FROM conversations c
+    WHERE c.type = 'channel' AND c.is_public = 1
+      ${q ? 'AND c.title LIKE ?' : ''}
+    ORDER BY member_count DESC, c.created_at DESC
+    LIMIT 50
+  `).all(...(q ? [like] : []))
+  return rows.map((c) => ({
+    id: c.id,
+    title: c.title || '未命名频道',
+    avatar: c.avatar || '',
+    memberCount: c.member_count,
+    messageCount: c.msg_count,
+    joined: isMember(c.id, userId)
+  }))
+}
+
+/** 加入公开频道（不需要邀请码） */
+export function joinPublicChannel(convId, userId) {
+  const conv = stConvById.get(String(convId))
+  if (!conv) throw statusError(404, '频道不存在')
+  if (conv.type !== 'channel') throw statusError(400, '不是频道')
+  if (!conv.is_public) throw statusError(403, '这个频道不是公开的')
+  if (isMember(conv.id, userId)) return { convId: conv.id, already: true }
+  db.prepare('INSERT OR IGNORE INTO conversation_members (conv_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)')
+    .run(conv.id, userId, 'member', now())
+  return { convId: conv.id, already: false, title: conv.title || '频道' }
+}
+
+/** 切换频道公开状态（频道主/管理员） */
+export function setChannelPublic(convId, userId, isPublic) {
+  const conv = stConvById.get(convId)
+  if (!conv) throw statusError(404, '会话不存在')
+  if (conv.type !== 'channel') throw statusError(400, '只有频道能设为公开')
+  const lvl = myLevel(convId, userId)
+  if (!['dev', 'owner', 'group_admin'].includes(lvl)) throw statusError(403, '权限不够')
+  db.prepare('UPDATE conversations SET is_public = ? WHERE id = ?').run(isPublic ? 1 : 0, convId)
+  return { isPublic: !!isPublic }
+}
+
+/* ------------------------------------------------------------------ */
+/*  导出聊天记录                                                        */
+/* ------------------------------------------------------------------ */
+
+export function exportConversation(convId, userId, format = 'txt') {
+  if (!isMember(convId, userId)) throw statusError(403, '不在这个会话里')
+  const conv = stConvById.get(convId)
+  const rows = db.prepare(
+    'SELECT * FROM messages WHERE conv_id = ? ORDER BY seq ASC'
+  ).all(convId)
+
+  const nameOf = (uid) => {
+    const u = stUserById.get(uid)
+    return u ? u.name : '未知'
+  }
+
+  const lines = []
+  if (format === 'txt') {
+    lines.push('【' + (conv.title || '聊天记录') + '】')
+    lines.push('导出时间：' + new Date().toLocaleString('zh-CN'))
+    lines.push('消息数：' + rows.length)
+    lines.push('')
+    for (const r of rows) {
+      const t = new Date(r.created_at).toLocaleString('zh-CN')
+      let body = ''
+      try { body = decryptBody(r.body) } catch { body = '' }
+      if (r.kind === 'image') body = '[图片]'
+      else if (r.kind === 'voice') body = '[语音]'
+      else if (r.kind === 'file') body = '[文件]'
+      else if (r.kind === 'sticker') body = '[表情]'
+      else if (r.kind === 'video') body = '[视频]'
+      else if (r.kind === 'location') body = '[位置]'
+      else if (r.kind === 'dice') body = '[骰子 ' + body + ']'
+      else if (r.kind === 'rps') body = '[猜拳 ' + body + ']'
+      else if (r.kind === 'pat') body = '[拍一拍]'
+      else if (r.kind === 'poll') body = '[投票]'
+      if (r.deleted) body = '[已撤回]'
+      lines.push('[' + t + '] ' + nameOf(r.sender_id) + '：' + body)
+    }
+    return { text: lines.join('\n'), filename: (conv.title || 'chat') + '.txt' }
+  }
+
+  // JSON
+  const data = rows.map((r) => {
+    let body = ''
+    try { body = decryptBody(r.body) } catch {}
+    return {
+      time: new Date(r.created_at).toISOString(),
+      sender: nameOf(r.sender_id),
+      kind: r.kind,
+      body: r.deleted ? '' : body,
+      deleted: !!r.deleted
+    }
+  })
+  return { text: JSON.stringify({ title: conv.title, messages: data }, null, 2), filename: (conv.title || 'chat') + '.json' }
+}
+
+/* ------------------------------------------------------------------ */
+/*  隐私开关                                                            */
+/* ------------------------------------------------------------------ */
+
+export function setPrivacy(userId, { showOnline, showRead } = {}) {
+  if (showOnline !== undefined) {
+    db.prepare('UPDATE users SET show_online = ? WHERE id = ?').run(showOnline ? 1 : 0, userId)
+  }
+  if (showRead !== undefined) {
+    db.prepare('UPDATE users SET show_read = ? WHERE id = ?').run(showRead ? 1 : 0, userId)
+  }
+  return publicUser(stUserById.get(userId))
+}
+
+/** 界面偏好（字号、气泡样式） */
+export function setPrefs(userId, { fontSize, bubbleStyle } = {}) {
+  if (fontSize !== undefined) {
+    const v = ['normal', 'large', 'xlarge'].includes(fontSize) ? fontSize : null
+    db.prepare('UPDATE users SET font_size = ? WHERE id = ?').run(v, userId)
+  }
+  if (bubbleStyle !== undefined) {
+    const v = ['round', 'square'].includes(bubbleStyle) ? bubbleStyle : null
+    db.prepare('UPDATE users SET bubble_style = ? WHERE id = ?').run(v, userId)
+  }
+  return publicUser(stUserById.get(userId))
+}
+
+/** 会话的免打扰时间段 */
+export function setQuietHours(convId, userId, range) {
+  if (!isMember(convId, userId)) throw statusError(403, '不在这个会话里')
+  const v = String(range || '').trim().slice(0, 20)
+  if (v && !/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(v)) throw statusError(400, '格式要像 22:00-08:00')
+  db.prepare('UPDATE conversation_members SET quiet_hours = ? WHERE conv_id = ? AND user_id = ?')
+    .run(v || null, convId, userId)
+  return { quietHours: v }
+}
+
+/** 现在是不是这个会话的免打扰时段 */
+/**
+ * 免打扰白名单：免打扰/静音时，这几种情况仍然提醒
+ *  - 被 @
+ *  - 私聊
+ *  - 关键词
+ */
+export function shouldStillNotify(convId, userId, message) {
+  const conv = stConvById.get(convId)
+  if (!conv) return false
+  // 私聊默认提醒
+  if (conv.type === 'direct') return true
+  // 被 @ 就提醒
+  try {
+    const list = message && message.mentions ? JSON.parse(message.mentions) : []
+    if (Array.isArray(list) && (list.includes('all') || list.includes(userId))) return true
+  } catch {}
+  return false
+}
+
+export function inQuietHours(convId, userId) {
+  const r = db.prepare('SELECT quiet_hours FROM conversation_members WHERE conv_id = ? AND user_id = ?').get(convId, userId)
+  if (!r || !r.quiet_hours) return false
+  const m = r.quiet_hours.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/)
+  if (!m) return false
+  const nowD = new Date()
+  const cur = nowD.getHours() * 60 + nowD.getMinutes()
+  const from = Number(m[1]) * 60 + Number(m[2])
+  const to = Number(m[3]) * 60 + Number(m[4])
+  if (from === to) return false
+  return from < to ? (cur >= from && cur < to) : (cur >= from || cur < to)
+}
+
+/** 设置谁能给我发私聊 */
+export function setMsgPolicy(userId, policy) {
+  const v = ['all', 'friend', 'none'].includes(policy) ? policy : 'all'
+  db.prepare('UPDATE users SET msg_policy = ? WHERE id = ?').run(v, userId)
+  return { msgPolicy: v }
+}
+
+/**
+ * 我能不能给这个人发私聊。
+ * friend 模式下：只有【已经有过对话】的人能发
+ */
+export function canMessageMe(targetId, fromId) {
+  const t = stUserById.get(String(targetId))
+  if (!t) return { ok: false, reason: '用户不存在' }
+  const policy = t.msg_policy || 'all'
+  if (policy === 'all') return { ok: true }
+  if (policy === 'none') return { ok: false, reason: '对方不接收陌生消息' }
+  // friend：检查有没有过私聊
+  const has = db.prepare(`
+    SELECT 1 FROM conversations c
+    JOIN conversation_members m1 ON m1.conv_id = c.id AND m1.user_id = ?
+    JOIN conversation_members m2 ON m2.conv_id = c.id AND m2.user_id = ?
+    WHERE c.type = 'direct' LIMIT 1
+  `).get(String(targetId), String(fromId))
+  if (has) return { ok: true }
+  return { ok: false, reason: '对方只接收好友消息' }
+}
+
+/** 水印开关 */
+export function setWatermark(userId, on) {
+  db.prepare('UPDATE users SET watermark = ? WHERE id = ?').run(on ? 1 : 0, userId)
+  return { watermark: !!on }
+}
+
+/** 这个人愿不愿意公开在线状态 */
+export function canSeeOnline(userId) {
+  const u = stUserById.get(String(userId))
+  if (!u) return false
+  return u.show_online !== 0
+}
+
+/* ------------------------------------------------------------------ */
+/*  群权限（细粒度）                                                    */
+/* ------------------------------------------------------------------ */
+
+const ALL_PERMS = ['send', 'add_member', 'delete_msg', 'pin', 'change_info', 'invite']
+
+/** 读某个成员的权限集合 */
+export function permsOf(convId, userId) {
+  const conv = stConvById.get(convId)
+  if (!conv) return []
+  const lvl = myLevel(convId, userId)
+  // 群主 / 管理员 / 开发者：全部权限
+  if (['dev', 'owner', 'group_admin'].includes(lvl)) return ALL_PERMS.slice()
+  const row = db.prepare('SELECT perms FROM conversation_members WHERE conv_id = ? AND user_id = ?').get(convId, userId)
+  if (row && row.perms) {
+    try {
+      const arr = JSON.parse(row.perms)
+      if (Array.isArray(arr)) return arr.filter((p) => ALL_PERMS.includes(p))
+    } catch {}
+  }
+  return ['send']   // 默认只能发消息
+}
+
+/** 设置某个成员的权限（管理员操作） */
+export function setMemberPerms(convId, targetId, perms, byUserId) {
+  const conv = stConvById.get(convId)
+  if (!conv) throw statusError(404, '会话不存在')
+  const lvl = myLevel(convId, byUserId)
+  if (!['dev', 'owner'].includes(lvl)) throw statusError(403, '只有群主能改权限')
+  const target = stUserById.get(String(targetId))
+  if (!target) throw statusError(404, '成员不存在')
+  const list = (perms || []).filter((p) => ALL_PERMS.includes(p))
+  db.prepare('UPDATE conversation_members SET perms = ? WHERE conv_id = ? AND user_id = ?')
+    .run(JSON.stringify(list), convId, targetId)
+  return { perms: list }
+}
+
+/** 设置慢速模式（秒） */
+export function setSlowMode(convId, seconds, byUserId) {
+  const conv = stConvById.get(convId)
+  if (!conv) throw statusError(404, '会话不存在')
+  const lvl = myLevel(convId, byUserId)
+  if (!['dev', 'owner', 'group_admin'].includes(lvl)) throw statusError(403, '权限不够')
+  const s = Math.max(0, Math.min(3600, Number(seconds) || 0))
+  db.prepare('UPDATE conversations SET slow_mode = ? WHERE id = ?').run(s, convId)
+  return { slowMode: s }
+}
+
+/** 检查慢速限制，超了就抛错 */
+export function checkSlowMode(convId, userId) {
+  const conv = stConvById.get(convId)
+  if (!conv || !conv.slow_mode) return
+  const lvl = myLevel(convId, userId)
+  if (['dev', 'owner', 'group_admin'].includes(lvl)) return   // 管理员不受限
+  const last = db.prepare(
+    'SELECT created_at FROM messages WHERE conv_id = ? AND sender_id = ? ORDER BY created_at DESC LIMIT 1'
+  ).get(convId, userId)
+  if (!last) return
+  const wait = conv.slow_mode * 1000 - (now() - last.created_at)
+  if (wait > 0) {
+    throw statusError(429, '慢速模式：还要等 ' + Math.ceil(wait / 1000) + ' 秒才能再发')
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  邀请链接                                                            */
+/* ------------------------------------------------------------------ */
+
+export function getInviteCode(convId, userId) {
+  const conv = stConvById.get(convId)
+  if (!conv) throw statusError(404, '会话不存在')
+  if (conv.type !== 'group' && conv.type !== 'channel') throw statusError(400, '只有群聊和频道有邀请链接')
+  const lvl = myLevel(convId, userId)
+  if (!['dev', 'owner', 'group_admin'].includes(lvl)) throw statusError(403, '只有管理员能生成邀请链接')
+
+  if (!conv.invite_code) {
+    // 生成一个 8 位的短码，避开易混字符
+    const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+    let code = ''
+    for (let i = 0; i < 8; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)]
+    db.prepare('UPDATE conversations SET invite_code = ? WHERE id = ?').run(code, convId)
+    return { code }
+  }
+  return { code: conv.invite_code }
+}
+
+/** 用邀请码加入群 */
+export function joinByInvite(code, userId) {
+  const c = db.prepare('SELECT * FROM conversations WHERE invite_code = ?').get(String(code || ''))
+  if (!c) throw statusError(404, '邀请链接无效或已失效')
+  if (isMember(c.id, userId)) return { convId: c.id, already: true }
+
+  const t = now()
+  db.prepare('INSERT OR IGNORE INTO conversation_members (conv_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)')
+    .run(c.id, userId, 'member', t)
+  return { convId: c.id, already: false, title: c.title || '群聊' }
+}
+
+/** 邀请码预览（不需要登录也能看群名，方便落地页） */
+export function peekInvite(code) {
+  const c = db.prepare('SELECT id, type, title, avatar FROM conversations WHERE invite_code = ?').get(String(code || ''))
+  if (!c) return null
+  const n = db.prepare('SELECT COUNT(*) n FROM conversation_members WHERE conv_id = ?').get(c.id).n
+  return { convId: c.id, type: c.type, title: c.title || '群聊', avatar: c.avatar || '', memberCount: n }
+}
+
+/* ------------------------------------------------------------------ */
+/*  全局搜索                                                            */
+/* ------------------------------------------------------------------ */
+
+export function globalSearch(userId, keyword, kinds = null) {
+  const q = String(keyword || '').trim()
+  if (!q) return { users: [], convs: [], messages: [] }
+  // kinds: ['text','image','voice','file'] 之类；不传就只搜文本
+  const kindFilter = Array.isArray(kinds) && kinds.length ? kinds : ['text']
+  const like = '%' + q + '%'
+
+  // ① 用户：按名字、数字 ID、手机号搜（排除自己）
+  const users = db.prepare(`
+    SELECT id, name, avatar, im_id, phone FROM users
+    WHERE id <> ? AND (name LIKE ? OR im_id LIKE ? OR phone LIKE ?)
+    LIMIT 20
+  `).all(userId, like, like, like).map((u) => ({
+    id: u.id, name: u.name, avatar: u.avatar, imId: u.im_id || '', phone: u.phone || ''
+  }))
+
+  // ② 群/频道：只搜我参与的
+  const convs = db.prepare(`
+    SELECT c.id, c.type, c.title, c.avatar FROM conversations c
+    JOIN conversation_members m ON m.conv_id = c.id
+    WHERE m.user_id = ? AND c.type IN ('group','channel') AND c.title LIKE ?
+    LIMIT 20
+  `).all(userId, like).map((c) => ({
+    id: c.id, type: c.type, title: c.title, avatar: c.avatar
+  }))
+
+  // ③ 消息：只在我参与的会话里搜（解密后匹配，数量有限所以可接受）
+  const myConvs = db.prepare('SELECT conv_id FROM conversation_members WHERE user_id = ?').all(userId).map((r) => r.conv_id)
+  const messages = []
+  if (myConvs.length) {
+    const placeholders = myConvs.map(() => '?').join(',')
+    const rows = db.prepare(`
+      SELECT m.id, m.conv_id, m.sender_id, m.body, m.kind, m.created_at,
+             u.name AS sender_name
+      FROM messages m LEFT JOIN users u ON u.id = m.sender_id
+      WHERE m.conv_id IN (${placeholders}) AND m.deleted = 0
+        ${kindFilter ? `AND m.kind IN (${kindFilter.map(() => '?').join(',')})` : ""}
+      ORDER BY m.created_at DESC LIMIT 400
+    `).all(...myConvs, ...(kindFilter || []))
+
+    const lower = q.toLowerCase()
+    for (const r of rows) {
+      let plain = ''
+      try { plain = decryptBody(r.body) } catch { continue }
+      // 非文本消息按类型命中即可，不做内容匹配
+      if (r.kind !== 'text') {
+        // 落到这里说明 kindFilter 里有这个类型，直接收
+      } else if (plain.toLowerCase().indexOf(lower) < 0) {
+        continue
+      }
+      let convName = ''
+      try {
+        const c = stConvById.get(r.conv_id)
+        if (c) {
+          if (c.type === 'group' || c.type === 'channel') convName = c.title || '群聊'
+          else {
+            const peer = db.prepare(`
+              SELECT u2.name FROM conversation_members cm JOIN users u2 ON u2.id = cm.user_id
+              WHERE cm.conv_id = ? AND cm.user_id <> ? LIMIT 1
+            `).get(c.id, userId)
+            convName = peer ? peer.name : '私聊'
+          }
+        }
+      } catch {}
+      messages.push({
+        id: r.id, convId: r.conv_id, convName, convTitle: convName,
+        senderName: r.sender_name || '',
+        body: plain,
+        createdAt: r.created_at
+      })
+      if (messages.length >= 50) break
+    }
+  }
+
+  return { users, convs, messages }
+}
+
+/* ------------------------------------------------------------------ */
+/*  消息收藏                                                            */
+/* ------------------------------------------------------------------ */
+
+export function toggleStar(messageId, userId) {
+  const row = stMessageById.get(String(messageId))
+  if (!row) throw statusError(404, '消息不存在')
+  if (!isMember(row.conv_id, userId)) throw statusError(403, '不在这个会话里')
+  const has = db.prepare('SELECT 1 FROM message_stars WHERE user_id = ? AND message_id = ?').get(userId, row.id)
+  if (has) {
+    db.prepare('DELETE FROM message_stars WHERE user_id = ? AND message_id = ?').run(userId, row.id)
+    return { starred: false }
+  }
+  db.prepare('INSERT INTO message_stars (user_id, message_id, created_at) VALUES (?, ?, ?)').run(userId, row.id, now())
+  return { starred: true }
+}
+
+export function myStars(userId) {
+  const rows = db.prepare(`
+    SELECT m.*, s.created_at AS star_at
+    FROM message_stars s JOIN messages m ON m.id = s.message_id
+    WHERE s.user_id = ? AND m.deleted = 0
+    ORDER BY s.created_at DESC LIMIT 200
+  `).all(userId)
+  return rows.map((r) => {
+    const m = shapeMessage(r, { withReply: false })
+    let convName = ''
+    try {
+      const c = stConvById.get(r.conv_id)
+      if (c) {
+        if (c.type === 'group' || c.type === 'channel') convName = c.title || '群聊'
+        else {
+          const peer = db.prepare(`
+            SELECT u.name FROM conversation_members cm JOIN users u ON u.id = cm.user_id
+            WHERE cm.conv_id = ? AND cm.user_id <> ? LIMIT 1
+          `).get(c.id, userId)
+          convName = peer ? peer.name : '私聊'
+        }
+      }
+    } catch {}
+    m.convName = convName
+    m.starAt = r.star_at
+    return m
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/*  匿名提问                                                            */
+/* ------------------------------------------------------------------ */
+
+/** 提问者指纹：目标+盐，无法反推是谁 */
+function askerHash(targetId, salt) {
+  try {
+    return createHash('sha256').update(String(targetId) + '|' + String(salt)).digest('hex').slice(0, 16)
+  } catch {
+    return 'anon'
+  }
+}
+
+export function askAnonymously(targetId, question, salt) {
+  const t = stUserById.get(String(targetId))
+  if (!t) throw statusError(404, '没有这个人')
+  const q = String(question || '').trim().slice(0, 200)
+  if (!q) throw statusError(400, '问题不能为空')
+
+  const h = askerHash(targetId, salt || '')
+  // 同一个人对同一个人 10 分钟内只能问一次，防止刷屏
+  const recent = db.prepare(
+    'SELECT created_at FROM anon_questions WHERE target_id = ? AND asker_hash = ? ORDER BY created_at DESC LIMIT 1'
+  ).get(t.id, h)
+  if (recent && now() - recent.created_at < 10 * 60 * 1000) {
+    throw statusError(429, '刚问过，等十分钟再问吧')
+  }
+
+  const id = uid('aq_')
+  db.prepare('INSERT INTO anon_questions (id, target_id, asker_hash, question, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(id, t.id, h, q, now())
+  return { id, question: q }
+}
+
+export function myAnonQuestions(userId) {
+  const rows = db.prepare(
+    'SELECT * FROM anon_questions WHERE target_id = ? ORDER BY created_at DESC LIMIT 50'
+  ).all(userId)
+  return rows.map((r) => ({
+    id: r.id,
+    question: r.question,
+    answer: r.answer || '',
+    createdAt: r.created_at,
+    answeredAt: r.answered_at
+  }))
+}
+
+export function answerAnon(questionId, userId, answer) {
+  const row = db.prepare('SELECT * FROM anon_questions WHERE id = ?').get(String(questionId))
+  if (!row) throw statusError(404, '问题不存在')
+  if (row.target_id !== userId) throw statusError(403, '不是问你的')
+  const a = String(answer || '').trim().slice(0, 500)
+  if (!a) throw statusError(400, '回答不能为空')
+  db.prepare('UPDATE anon_questions SET answer = ?, answered_at = ? WHERE id = ?').run(a, now(), row.id)
+  return { id: row.id, answer: a }
+}
+
+/** 某人公开的问答（只返回已回答的） */
+export function publicAnonOf(userId) {
+  const rows = db.prepare(
+    "SELECT id, question, answer, answered_at FROM anon_questions WHERE target_id = ? AND answer IS NOT NULL AND answer <> '' ORDER BY answered_at DESC LIMIT 20"
+  ).all(userId)
+  return rows.map((r) => ({ id: r.id, question: r.question, answer: r.answer, at: r.answered_at }))
+}
+
+/* ------------------------------------------------------------------ */
+/*  签到与活跃榜                                                        */
+/* ------------------------------------------------------------------ */
+
+const dayStr = (ts = Date.now()) => {
+  const d = new Date(ts)
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return d.getFullYear() + '-' + m + '-' + dd
+}
+
+/** 今天签个到（重复调用不会重复记） */
+export function checkin(userId) {
+  const day = dayStr()
+  const has = db.prepare('SELECT 1 FROM checkins WHERE user_id = ? AND day = ?').get(userId, day)
+  if (!has) {
+    db.prepare('INSERT INTO checkins (user_id, day, created_at) VALUES (?, ?, ?)').run(userId, day, now())
+  }
+  // 连续天数
+  let streak = 0
+  let cursor = new Date()
+  for (let i = 0; i < 400; i++) {
+    const k = dayStr(cursor.getTime())
+    const got = db.prepare('SELECT 1 FROM checkins WHERE user_id = ? AND day = ?').get(userId, k)
+    if (!got) break
+    streak++
+    cursor.setDate(cursor.getDate() - 1)
+  }
+  const firstToday = db.prepare(
+    'SELECT user_id FROM checkins WHERE day = ? ORDER BY created_at ASC LIMIT 1'
+  ).get(day)
+  const firstUser = firstToday ? stUserById.get(firstToday.user_id) : null
+  return {
+    day,
+    checked: true,
+    streak,
+    alreadyToday: !!has,
+    firstToday: firstUser ? firstUser.name : '',
+    firstIsMe: !!(firstUser && firstUser.id === userId)
+  }
+}
+
+/** 今天的签到榜 + 最近 7 天活跃度 */
+export function checkinBoard() {
+  const day = dayStr()
+  const people = stUserById ? null : null
+  const rows = db.prepare(`
+    SELECT c.user_id, c.created_at, u.name
+    FROM checkins c JOIN users u ON u.id = c.user_id
+    WHERE c.day = ? ORDER BY c.created_at ASC
+  `).all(day)
+
+  const list = rows.map((r) => ({ id: r.user_id, name: r.name, at: r.created_at }))
+
+  // 最近 7 天每人发了几条消息，当作活跃度
+  const since = Date.now() - 7 * 24 * 3600 * 1000
+  const active = db.prepare(`
+    SELECT m.sender_id AS id, u.name, COUNT(*) AS n
+    FROM messages m JOIN users u ON u.id = m.sender_id
+    WHERE m.created_at >= ? AND m.deleted = 0
+    GROUP BY m.sender_id ORDER BY n DESC LIMIT 10
+  `).all(since)
+
+  return { day, list, active }
+}
+
+/* ------------------------------------------------------------------ */
+/*  群投票                                                             */
+/* ------------------------------------------------------------------ */
+
+export function createPoll(convId, userId, question, options, multi = false) {
+  if (!isMember(convId, userId)) throw statusError(403, '不在这个会话里')
+  const q = String(question || '').trim().slice(0, 60)
+  if (!q) throw statusError(400, '问题不能为空')
+  const opts = (options || []).map((x) => String(x || '').trim().slice(0, 30)).filter(Boolean).slice(0, 6)
+  if (opts.length < 2) throw statusError(400, '至少要两个选项')
+
+  const id = uid('pl_')
+  db.prepare('INSERT INTO polls (id, conv_id, creator_id, question, options, multi, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, convId, userId, q, JSON.stringify(opts), multi ? 1 : 0, now())
+  return getPoll(id, userId)
+}
+
+/** 读一个投票（带票数和自己的选择） */
+export function getPoll(pollId, userId) {
+  const p = db.prepare('SELECT * FROM polls WHERE id = ?').get(String(pollId))
+  if (!p) throw statusError(404, '投票不存在')
+  let options = []
+  try { options = JSON.parse(p.options) } catch { options = [] }
+
+  const votes = db.prepare('SELECT user_id, option_index FROM poll_votes WHERE poll_id = ?').all(p.id)
+  const counts = options.map(() => 0)
+  const mine = []
+  const voters = options.map(() => [])
+  for (const v of votes) {
+    if (v.option_index >= 0 && v.option_index < counts.length) {
+      counts[v.option_index]++
+      voters[v.option_index].push(v.user_id)
+      if (v.user_id === userId) mine.push(v.option_index)
+    }
+  }
+  const creator = stUserById.get(p.creator_id)
+  return {
+    id: p.id,
+    convId: p.conv_id,
+    question: p.question,
+    options: options.map((t, i) => ({ text: t, count: counts[i], users: voters[i] })),
+    multi: !!p.multi,
+    total: votes.length,
+    mine,
+    creatorName: creator ? creator.name : '',
+    createdAt: p.created_at
+  }
+}
+
+export function votePoll(pollId, userId, optionIndex) {
+  const p = db.prepare('SELECT * FROM polls WHERE id = ?').get(String(pollId))
+  if (!p) throw statusError(404, '投票不存在')
+  if (!isMember(p.conv_id, userId)) throw statusError(403, '不在这个会话里')
+  let options = []
+  try { options = JSON.parse(p.options) } catch { options = [] }
+  const idx = Number(optionIndex)
+  if (!Number.isInteger(idx) || idx < 0 || idx >= options.length) throw statusError(400, '选项不对')
+
+  const has = db.prepare('SELECT 1 FROM poll_votes WHERE poll_id = ? AND user_id = ? AND option_index = ?')
+    .get(p.id, userId, idx)
+
+  if (has) {
+    db.prepare('DELETE FROM poll_votes WHERE poll_id = ? AND user_id = ? AND option_index = ?').run(p.id, userId, idx)
+  } else {
+    if (!p.multi) {
+      // 单选：先清掉自己的旧票
+      db.prepare('DELETE FROM poll_votes WHERE poll_id = ? AND user_id = ?').run(p.id, userId)
+    }
+    db.prepare('INSERT INTO poll_votes (poll_id, user_id, option_index, created_at) VALUES (?, ?, ?, ?)')
+      .run(p.id, userId, idx, now())
+  }
+  return getPoll(p.id, userId)
 }
 
 export function statusError(status, message) {
@@ -1783,4 +3764,64 @@ export function stats() {
     conversations: one('SELECT COUNT(*) n FROM conversations'),
     messages: one('SELECT COUNT(*) n FROM messages')
   }
+}
+
+/* ---------------- 端到端加密公钥 ---------------- */
+// 只存公钥包，服务器没有任何私钥；消息正文由客户端加解密
+export function saveE2eeBundle(userId, bundle) {
+  db.prepare(`INSERT INTO e2ee_bundles (user_id, bundle, updated_at) VALUES (?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET bundle=excluded.bundle, updated_at=excluded.updated_at`)
+    .run(userId, JSON.stringify(bundle), Date.now())
+  return true
+}
+
+export function getE2eeBundle(userId) {
+  const r = db.prepare('SELECT bundle FROM e2ee_bundles WHERE user_id = ?').get(userId)
+  if (!r) return null
+  try { return JSON.parse(r.bundle) } catch { return null }
+}
+
+/** 哪些用户已经上传了 E2EE 公钥（能接收密聊） */
+/** 所有用户（管理接口用） */
+export function listAllUsers() {
+  return db.prepare('SELECT * FROM users ORDER BY created_at').all().map(publicUser)
+}
+
+export function e2eeReadyUsers() {
+  const rows = db.prepare('SELECT user_id FROM e2ee_bundles').all()
+  const set = new Set()
+  for (const r of rows) set.add(r.user_id)
+  return set
+}
+
+export function e2eeEnabled(userId) {
+  return !!db.prepare('SELECT 1 x FROM e2ee_bundles WHERE user_id = ?').get(userId)
+}
+
+
+/* ---------------- 群聊 SenderKey 分发包 ---------------- */
+// payload 是客户端用一对一会话密钥加密过的密文，服务器解不开
+export function saveGroupSenderKey({ convId, userId, targetId, epoch, payload }) {
+  db.prepare(`INSERT INTO e2ee_group_state (conv_id, user_id, target_id, epoch, payload, created_at)
+    VALUES (?,?,?,?,?,?)
+    ON CONFLICT(conv_id, user_id, target_id, epoch)
+    DO UPDATE SET payload=excluded.payload, created_at=excluded.created_at`)
+    .run(convId, userId, targetId, Number(epoch) || 1, JSON.stringify(payload), Date.now())
+  return true
+}
+
+// 取「某人发给我的」最新一代分发包
+export function getGroupSenderKey(convId, fromUserId, targetId) {
+  const r = db.prepare(`SELECT epoch, payload FROM e2ee_group_state
+    WHERE conv_id = ? AND user_id = ? AND target_id = ?
+    ORDER BY epoch DESC LIMIT 1`).get(convId, fromUserId, targetId)
+  if (!r) return null
+  try { return { epoch: r.epoch, payload: JSON.parse(r.payload) } } catch { return null }
+}
+
+// 某个群里我给别人分发过的最大 epoch
+export function maxGroupEpoch(convId, userId) {
+  const r = db.prepare('SELECT MAX(epoch) e FROM e2ee_group_state WHERE conv_id = ? AND user_id = ?')
+    .get(convId, userId)
+  return r && r.e ? r.e : 0
 }

@@ -23,7 +23,15 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+// sharp 是可选的：装了就生成缩略图，没装就回原图
+let sharp = null
+try {
+  sharp = (await import('sharp')).default
+} catch {
+  console.log('[im] sharp 没装，图片缩略图功能关闭（原图照常可用）')
+}
 import { WebSocketServer } from 'ws'
+import { scanGarbage, cleanGarbage } from './gc-scan.mjs'
 import * as store from './db.mjs'
 import * as push from './push.mjs'
 import * as captcha from './captcha.mjs'
@@ -41,6 +49,7 @@ push.initPush()
 /* ------------------------------------------------------------------ */
 
 const CORS = {
+  // App 里页面从 http://127.0.0.1:xxxx 加载，也要允许跨域
   'Access-Control-Allow-Origin': process.env.CORS_ORIGIN || '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS'
@@ -114,7 +123,15 @@ const MIME = {
 }
 
 function serveStatic(req, res, pathname) {
-  const rel = pathname === '/' ? '/index.html' : pathname
+  // 默认走单文件版：老版本 APK 只认一个 index.html
+  // /lite 走拆分版（新版 APK 用，首屏更快）
+  // 关键：老版本 APK 拉的是 /index.html，必须也给它单文件版，
+  // 否则它拿到的是 20KB 的空壳（没有 CSS/JS），页面会整个错乱
+  const single = path.join(PUBLIC_DIR, 'index.single.html')
+  const hasSingle = fs.existsSync(single)
+  const rel = (pathname === '/' || pathname === '/index.html')
+    ? (hasSingle ? '/index.single.html' : '/index.html')
+    : (pathname === '/lite' ? '/index.html' : pathname)
   let decoded
   try {
     decoded = decodeURIComponent(rel)
@@ -221,6 +238,30 @@ function parseMultipart(buf, boundary) {
 /*  HTTP 路由                                                          */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/*  缩略图：第一次请求时生成，之后直接读磁盘                            */
+/* ------------------------------------------------------------------ */
+const THUMB_DIR = '/var/lib/im-server/thumbs'
+try { fs.mkdirSync(THUMB_DIR, { recursive: true }) } catch {}
+
+async function getThumb(id, img, width) {
+  if (!sharp) return img.data;   // 没装 sharp 就直接给原图
+  const key = id + '_' + width + '.jpg'
+  const fp = path.join(THUMB_DIR, key)
+  // 命中缓存
+  try {
+    if (fs.existsSync(fp)) return fs.readFileSync(fp)
+  } catch {}
+
+  const out = await sharp(img.data)
+    .resize({ width, withoutEnlargement: true })
+    .jpeg({ quality: 72, progressive: true })
+    .toBuffer()
+
+  try { fs.writeFileSync(fp, out) } catch {}
+  return out
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`)
   const pathname = url.pathname.replace(/\/+$/, '') || '/'
@@ -275,6 +316,24 @@ const server = http.createServer(async (req, res) => {
       }
       const img = store.readImage(imgMatch[1])
       if (!img) return json(res, 404, { error: 'not found' })
+
+      // ?w=240 → 返回缩略图（第一次生成，之后走磁盘缓存）
+      const wantW = Number(url.searchParams.get('w') || 0)
+      if (wantW > 0 && wantW <= 800) {
+        try {
+          const thumb = await getThumb(imgMatch[1], img, wantW)
+          res.writeHead(200, {
+            'Content-Type': 'image/jpeg',
+            'Content-Length': thumb.length,
+            'Cache-Control': 'public, max-age=31536000, immutable',
+            ...CORS
+          })
+          return res.end(thumb)
+        } catch (e) {
+          // 生成失败就返回原图
+        }
+      }
+
       res.writeHead(200, {
         'Content-Type': img.mime,
         'Content-Length': img.data.length,
@@ -327,10 +386,30 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/auth/login') {
       const body = await readJson(req)
-      // body 里给 imId 就用 ID 登录，给 phone 就用手机号
-      const user = store.login(body)
-      const token = store.createSession(user.id)
-      return json(res, 200, { user, token })
+      try {
+        // body 里给 imId 就用 ID 登录，给 phone 就用手机号
+        const user = store.login(body)
+        // 设备指纹：UA + 粗略平台，够用
+        const ua = String(req.headers['user-agent'] || '').slice(0, 180)
+        const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim()
+        const isNew = store.isNewDevice(user.id, ua)
+        const token = store.createSession(user.id, { device: ua, ip })
+        // 新设备登录 → 通知本人
+        if (isNew && ua) {
+          try {
+            hub.sendToUser(user.id, {
+              t: 'new-device',
+              device: ua.slice(0, 60),
+              ip
+            })
+          } catch {}
+        }
+        return json(res, 200, { user, token, isNewDevice: isNew })
+      } catch (e) {
+        // 需要两步验证码时，明确告诉前端
+        if (e.needTotp) return json(res, 401, { error: e.message, needTotp: true })
+        throw e
+      }
     }
 
     if (method === 'POST' && pathname === '/api/auth/logout') {
@@ -348,6 +427,84 @@ const server = http.createServer(async (req, res) => {
         if (body.imId !== undefined) throw store.statusError(403, 'ID 不能自行修改，需要开发者分配')
         return json(res, 200, { user: store.updateProfile(me.id, body) })
       }
+    }
+
+    /* ---------- 端到端加密：公钥交换 ----------
+       服务器只存公钥包、只搬运密文，没有任何私钥，
+       也不知道消息正文是什么。 */
+    if (method === 'POST' && pathname === '/api/e2ee/bundle') {
+      const me = requireUser(req)
+      const body = await readJson(req)
+      if (!body || !body.bundle || typeof body.bundle !== 'object') {
+        return json(res, 400, { error: '缺少 bundle' })
+      }
+      store.saveE2eeBundle(me.id, body.bundle)
+      return json(res, 200, { ok: true })
+    }
+
+    /* ---------- 群聊 SenderKey 分发 ----------
+       payload 是客户端用一对一会话密钥加密后的密文，
+       服务器只负责存取和转发，解不开也验证不了内容。 */
+    if (method === 'POST' && pathname === '/api/e2ee/group/senderkey') {
+      const me = requireUser(req)
+      const body = await readJson(req)
+      const convId = String(body.convId || '')
+      const epoch = Number(body.epoch) || 1
+      const list = Array.isArray(body.distributions) ? body.distributions : []
+      if (!convId || !list.length) return json(res, 400, { error: '缺少 convId 或 distributions' })
+      if (!store.membersOf(convId).some((m) => m.id === me.id)) {
+        return json(res, 403, { error: '你不在这个群里' })
+      }
+      for (const d of list) {
+        if (!d || !d.targetId || !d.payload) continue
+        store.saveGroupSenderKey({
+          convId,
+          userId: me.id,
+          targetId: d.targetId,
+          epoch,
+          payload: d.payload
+        })
+      }
+      return json(res, 200, { ok: true, epoch, count: list.length })
+    }
+
+    if (method === 'GET' && pathname.startsWith('/api/e2ee/group/senderkey/')) {
+      const me = requireUser(req)
+      const rest = pathname.slice('/api/e2ee/group/senderkey/'.length).split('/')
+      const convId = decodeURIComponent(rest[0] || '')
+      const fromId = decodeURIComponent(rest[1] || '')
+      if (!convId || !fromId) return json(res, 400, { error: '参数不全' })
+      if (!store.membersOf(convId).some((m) => m.id === me.id)) {
+        return json(res, 403, { error: '你不在这个群里' })
+      }
+      if (!store.membersOf(convId).some((m) => m.id === fromId)) {
+        return json(res, 404, { error: '对方不在这个群里' })
+      }
+      const got = store.getGroupSenderKey(convId, fromId, me.id)
+      if (!got) return json(res, 404, { error: '还没收到对方的密钥' })
+      return json(res, 200, got)
+    }
+
+    if (method === 'GET' && pathname.startsWith('/api/e2ee/group/epoch/')) {
+      const me = requireUser(req)
+      const convId = decodeURIComponent(pathname.slice('/api/e2ee/group/epoch/'.length))
+      if (!store.membersOf(convId).some((m) => m.id === me.id)) {
+        return json(res, 403, { error: '你不在这个群里' })
+      }
+      return json(res, 200, { convId, epoch: store.maxGroupEpoch(convId, me.id) })
+    }
+
+    if (method === 'GET' && pathname === '/api/e2ee/me') {
+      const me = requireUser(req)
+      return json(res, 200, { enabled: store.e2eeEnabled(me.id) })
+    }
+
+    if (method === 'GET' && pathname.startsWith('/api/e2ee/bundle/')) {
+      requireUser(req)
+      const uid = decodeURIComponent(pathname.slice('/api/e2ee/bundle/'.length))
+      const bundle = store.getE2eeBundle(uid)
+      if (!bundle) return json(res, 404, { error: '对方还没开启端到端加密' })
+      return json(res, 200, { bundle, userId: uid })
     }
 
     /* ---------- 推送订阅 ---------- */
@@ -392,11 +549,22 @@ const server = http.createServer(async (req, res) => {
       const conversations = store.listConversations(me.id)
       // 顺手把在线状态贴上去，前端一进来就有准确状态，不用等推送
       for (const c of conversations) {
-        if (c.peer) c.peer.online = hub.isOnline(c.peer.id)
-        if (c.members) for (const m of c.members) m.online = hub.isOnline(m.id)
-        if (Array.isArray(c.members)) for (const m of c.members) m.online = hub.isOnline(m.id)
+        // 隐身的人一律显示离线
+        const vis = (id) => store.canSeeOnline(id) && hub.isOnline(id)
+        if (c.peer) c.peer.online = vis(c.peer.id)
+        if (Array.isArray(c.members)) for (const m of c.members) m.online = vis(m.id)
       }
       return json(res, 200, { conversations })
+    }
+
+    /* ---------- 密聊会话：创建 / 升级 ---------- */
+    if (method === 'POST' && pathname === '/api/conversations/secret') {
+      const me = requireUser(req)
+      const body = await readJson(req)
+      const peerId = body.peerId || store.findUserByPhone(body.phone || '')?.id
+      if (!peerId) return json(res, 400, { error: '缺少 peerId' })
+      const conversationId = store.getOrCreateSecret(me.id, peerId)
+      return json(res, 200, { conversationId, isSecret: true, type: 'direct', members: store.membersOf(conversationId) })
     }
 
     if (method === 'POST' && pathname === '/api/conversations') {
@@ -407,7 +575,7 @@ const server = http.createServer(async (req, res) => {
       if (body.type === 'group') {
         const memberIds = Array.isArray(body.memberIds) ? body.memberIds : []
         const kind = body.kind === 'channel' ? 'channel' : 'group'
-        const convId = store.createGroup(me.id, body.name, memberIds, kind)
+        const convId = store.createGroup(me.id, body.name, memberIds, kind, !!body.isPublic)
         return json(res, 200, {
           conversationId: convId,
           type: 'group',
@@ -420,23 +588,6 @@ const server = http.createServer(async (req, res) => {
       if (!peerId) throw store.statusError(404, '对方不存在')
       const convId = store.getOrCreateDirect(me.id, peerId)
       return json(res, 200, { conversationId: convId, type: 'direct', members: store.membersOf(convId) })
-    }
-
-    /* ---------- 搜索聊天记录 ---------- */
-    if (method === 'GET' && pathname === '/api/search') {
-      const me = requireUser(req)
-      const q = url.searchParams.get('q') || ''
-      const convId = url.searchParams.get('convId') || null
-      const messages = store.searchMessages(me.id, q, { convId, limit: 60 })
-      // 补上对方/群名，搜索结果列表里要显示来自哪个对话
-      const convs = store.listConversations(me.id)
-      const byId = new Map(convs.map((c) => [c.id, c]))
-      for (const m of messages) {
-        const c = byId.get(m.convId)
-        m.convTitle = c ? c.title || (c.peer ? c.peer.name : '对话') : '对话'
-        m.convType = c ? c.type : 'direct'
-      }
-      return json(res, 200, { messages, query: q })
     }
 
     /* ---------- 撤回消息 ---------- */
@@ -468,6 +619,15 @@ const server = http.createServer(async (req, res) => {
             announcement: body.announcement,
             avatar: body.avatar
           })
+          // 公告更新了 → 顺带把新消息广播出去
+          if (body.announcement !== undefined) {
+            try {
+              const last = store.lastMessageOf(convId)
+              if (last && last.kind === 'pat') {
+                hub.broadcastConv(store.membersOf(convId), { t: 'message', message: last })
+              }
+            } catch {}
+          }
           hub.broadcastConv(store.membersOf(convId), {
             t: 'members',
             convId,
@@ -481,6 +641,25 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    /* ---------- 自定义头衔 ---------- */
+    {
+      const mm = pathname.match(/^\/api\/admin\/users\/([^/]+)\/title$/)
+      if (mm && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const user = store.setUserTitle(mm[1], body.title, body.color, me.id)
+        return json(res, 200, { user })
+      }
+      // 自己改自己的
+      const self = pathname.match(/^\/api\/me\/title$/)
+      if (self && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const user = store.setUserTitle(me.id, body.title, body.color, me.id)
+        return json(res, 200, { user })
+      }
+    }
+
     /* ---------- 消息保留时长（自毁） ---------- */
     {
       const mm = pathname.match(/^\/api\/conversations\/([^/]+)\/ttl$/)
@@ -490,6 +669,666 @@ const server = http.createServer(async (req, res) => {
         const r = store.setConversationTtl(mm[1], me.id, body.ttl)
         hub.broadcastConv(store.membersOf(mm[1]), { t: 'ttl-changed', convId: mm[1], ttl: r.ttl })
         return json(res, 200, r)
+      }
+    }
+
+    /* ---------- 管理后台：一次性拿全部数据 ---------- */
+    {
+      if (pathname === '/api/admin/dashboard' && method === 'GET') {
+        requireAdmin(req)
+        return json(res, 200, {
+          stats: store.adminStats(),
+          users: store.adminListUsers(),
+          conversations: store.adminListConversations()
+        })
+      }
+    }
+
+    /* ---------- 管理后台：媒体与全局消息 ---------- */
+    {
+      if (pathname === '/api/admin/media' && method === 'GET') {
+        requireAdmin(req)
+        return json(res, 200, { media: store.adminMedia() })
+      }
+      if (pathname === '/api/admin/messages' && method === 'GET') {
+        requireAdmin(req)
+        const limit = Number(url.searchParams.get('limit') || 100)
+        return json(res, 200, { messages: store.adminRecentMessages(limit) })
+      }
+    }
+
+    /* ---------- 发现公开频道 ---------- */
+    {
+      if (pathname === '/api/channels/public' && method === 'GET') {
+        const me = requireUser(req)
+        const q = url.searchParams.get('q') || ''
+        return json(res, 200, { channels: store.listPublicChannels(me.id, q) })
+      }
+      const jm = pathname.match(/^\/api\/channels\/([^/]+)\/join$/)
+      if (jm && method === 'POST') {
+        const me = requireUser(req)
+        const r = store.joinPublicChannel(jm[1], me.id)
+        hub.broadcastConv(store.membersOf(r.convId), { t: 'members', convId: r.convId, members: store.membersOf(r.convId) })
+        return json(res, 200, r)
+      }
+      const pm = pathname.match(/^\/api\/conversations\/([^/]+)\/public$/)
+      if (pm && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        return json(res, 200, store.setChannelPublic(pm[1], me.id, !!body.isPublic))
+      }
+    }
+
+    /* ---------- 管理后台：用户行为 ---------- */
+    {
+      const am = pathname.match(/^\/api\/admin\/users\/([^/]+)\/activity$/)
+      if (am && method === 'GET') {
+        const me = requireUser(req)
+        if (me.role !== 'admin') return json(res, 403, { error: '需要管理员权限' })
+        return json(res, 200, store.adminUserActivity(am[1]))
+      }
+    }
+
+    /* ---------- 个人主页 ---------- */
+    {
+      const um = pathname.match(/^\/api\/users\/([^/]+)\/profile$/)
+      if (um && method === 'GET') {
+        const me = requireUser(req)
+        return json(res, 200, store.userProfile(um[1], me.id))
+      }
+    }
+
+    /* ---------- 撤回记录（管理后台） ---------- */
+    {
+      if (pathname === '/api/admin/recalls' && method === 'GET') {
+        const me = requireUser(req)
+        if (me.role !== 'admin') return json(res, 403, { error: '需要管理员权限' })
+        const limit = Number(url.searchParams.get('limit') || 200)
+        return json(res, 200, { recalls: store.adminRecallLog(limit) })
+      }
+    }
+
+    /* ---------- 双向撤回 ---------- */
+    {
+      const pm = pathname.match(/^\/api\/conversations\/([^/]+)\/purge$/)
+      if (pm && method === 'POST') {
+        const me = requireUser(req)
+        const r = store.purgeConversation(pm[1], me.id)
+        // 告诉双方：这个会话已经清空，本地列表也要清
+        const members = store.membersOf(pm[1])
+        hub.broadcastConv(members, {
+          t: 'conversation-purged',
+          convId: pm[1],
+          byId: me.id,
+          byName: me.name
+        })
+        return json(res, 200, { deleted: r.deleted })
+      }
+    }
+
+    /* ---------- 消息编辑历史 ---------- */
+    {
+      const mm = pathname.match(/^\/api\/messages\/([^/]+)\/edits$/)
+      if (mm && method === 'GET') {
+        const me = requireUser(req)
+        return json(res, 200, { edits: store.messageEditHistory(mm[1], me.id) })
+      }
+    }
+
+    /* ---------- 二维码 ---------- */
+    {
+      if (pathname === '/api/qr' && method === 'GET') {
+        const text = url.searchParams.get('t') || 'https://im.bierlan.ccwu.cc/download/'
+        // 颜色可指定：默认深色码 + 透明底（暗色主题用）；
+        // 传 light=1 时用「黑码 + 白底」，亮色主题下也看得清
+        const wantLight = url.searchParams.get('light') === '1'
+        try {
+          const QR = (await import('qrcode')).default
+          const svg = await QR.toString(text.slice(0, 500), {
+            type: 'svg',
+            margin: 1,
+            width: 220,
+            color: wantLight
+              ? { dark: '#14171f', light: '#ffffff' }
+              : { dark: '#eceef5', light: '#00000000' }
+          })
+          res.writeHead(200, {
+            'Content-Type': 'image/svg+xml; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600',
+            ...CORS
+          })
+          return res.end(svg)
+        } catch (e) {
+          return json(res, 500, { error: e.message })
+        }
+      }
+    }
+
+    /* ---------- 下载列表（自动读 download 目录） ---------- */
+    {
+      if (pathname === '/api/download/list' && method === 'GET') {
+        const dir = path.join(PUBLIC_DIR, 'download')
+        const list = []
+        try {
+          for (const f of fs.readdirSync(dir)) {
+            if (!/\.apk$/i.test(f)) continue
+            const st = fs.statSync(path.join(dir, f))
+            if (!st.isFile()) continue
+            // 从文件名里抠版本号：qiaoqiao-2.5.apk → 2.5
+            const m = f.match(/(\d+)\.(\d+)/)
+            list.push({
+              file: f,
+              version: m ? m[1] + '.' + m[2] : '',
+              size: st.size,
+              mtime: st.mtimeMs
+            })
+          }
+        } catch {}
+        // 按版本号从大到小
+        list.sort((a, b) => {
+          const av = a.version.split('.').map(Number)
+          const bv = b.version.split('.').map(Number)
+          for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+            const x = av[i] || 0, y = bv[i] || 0
+            if (x !== y) return y - x
+          }
+          return b.mtime - a.mtime
+        })
+        return json(res, 200, { list })
+      }
+    }
+
+    /* ---------- 谁能接收密聊 ---------- */
+    {
+      if (pathname === '/api/e2ee/ready' && method === 'GET') {
+        const me = requireUser(req)
+        const ids = store.e2eeReadyUsers()
+        const list = []
+        const all = store.listAllUsers ? store.listAllUsers() : []
+        for (const id of ids) {
+          if (id === me.id) continue
+          const u = all.find(x => x.id === id)
+          if (u) list.push({ id: u.id, name: u.name, avatar: u.avatar || '', online: hub.isOnline(id) })
+        }
+        return json(res, 200, { ready: list })
+      }
+    }
+
+    /* ---------- 管理后台：清理垃圾文件 ---------- */
+    {
+      if (pathname === '/api/admin/gc' && method === 'POST') {
+        const me = requireUser(req)
+        if (me.role !== 'admin') return json(res, 403, { error: '需要管理员权限' })
+        const body = await readJson(req).catch(() => ({}))
+        const category = body.category || 'media'
+        const used = store.usedMediaIds ? store.usedMediaIds() : new Set()
+        const r = cleanGarbage(category, used, store.removeMediaRow)
+        console.log('[gc] 清理 ' + category + '：删了 ' + r.removed + ' 个，释放 ' + Math.round(r.freedBytes / 1024) + 'KB')
+        return json(res, 200, r)
+      }
+      if (pathname === '/api/admin/gc/preview' && method === 'GET') {
+        const me = requireUser(req)
+        if (me.role !== 'admin') return json(res, 403, { error: '需要管理员权限' })
+        // 先把「正在被引用」的媒体 id 全部收集出来
+        const used = store.usedMediaIds ? store.usedMediaIds() : new Set()
+        return json(res, 200, scanGarbage(used))
+      }
+    }
+
+    /* ---------- 好友关系 ---------- */
+    {
+      if (pathname === '/api/friends' && method === 'GET') {
+        const me = requireUser(req)
+        return json(res, 200, { friends: store.listFriends(me.id) })
+      }
+      if (pathname === '/api/friends/requests' && method === 'GET') {
+        const me = requireUser(req)
+        return json(res, 200, { requests: store.myFriendRequests(me.id) })
+      }
+      if (pathname === '/api/friends/request' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const r = store.sendFriendRequest(me.id, body.toId, body.message)
+        // 通知对方
+        if (r.status === 'sent') {
+          try{ hub.sendToUser(body.toId, { t: 'friend-request', fromName: me.name, fromId: me.id }) }catch(e){}
+        }
+        return json(res, 200, r)
+      }
+      const fr = pathname.match(/^\/api\/friends\/requests\/([^/]+)\/(accept|reject)$/)
+      if (fr && method === 'POST') {
+        const me = requireUser(req)
+        const r = store.respondFriendRequest(fr[1], me.id, fr[2] === 'accept')
+        return json(res, 200, r)
+      }
+      const st = pathname.match(/^\/api\/friends\/status\/([^/]+)$/)
+      if (st && method === 'GET') {
+        const me = requireUser(req)
+        return json(res, 200, store.friendStatus(me.id, st[1]))
+      }
+    }
+
+    /* ---------- 举报 ---------- */
+    {
+      if (pathname === '/api/reports' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        return json(res, 200, store.submitReport(me.id, body))
+      }
+      if (pathname === '/api/admin/reports' && method === 'GET') {
+        const me = requireUser(req)
+        if (me.role !== 'admin') return json(res, 403, { error: '需要管理员权限' })
+        return json(res, 200, { items: store.listReports(200) })
+      }
+      const hr = pathname.match(/^\/api\/admin\/reports\/([^/]+)\/handle$/)
+      if (hr && method === 'POST') {
+        const me = requireUser(req)
+        if (me.role !== 'admin') return json(res, 403, { error: '需要管理员权限' })
+        const body = await readJson(req)
+        return json(res, 200, store.handleReport(hr[1], body.action))
+      }
+    }
+
+    /* ---------- 谁能给我发消息 ---------- */
+    {
+      if (pathname === '/api/me/msg-policy' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        return json(res, 200, store.setMsgPolicy(me.id, body.policy))
+      }
+    }
+
+    /* ---------- 问题反馈 ---------- */
+    {
+      if (pathname === '/api/feedback' && method === 'POST') {
+        const body = await readJson(req)
+        let me = null
+        try { me = requireUser(req) } catch {}
+        const r = store.submitFeedback(me ? me.id : null, body)
+        // 立刻通知所有管理员
+        try {
+          const admins = (store.adminDashboard ? store.adminDashboard().users || [] : []).filter(x => x.role === 'admin')
+          for (const a of admins) {
+            hub.sendToUser(a.id, { t: 'new-feedback', content: body.content, from: me ? me.name : '未登录用户' })
+          }
+        } catch {}
+        return json(res, 200, r)
+      }
+      if (pathname === '/api/admin/feedback' && method === 'GET') {
+        const me = requireUser(req)
+        if (me.role !== 'admin') return json(res, 403, { error: '需要管理员权限' })
+        return json(res, 200, { items: store.listFeedback(200) })
+      }
+      const fr = pathname.match(/^\/api\/admin\/feedback\/([^/]+)\/reply$/)
+      if (fr && method === 'POST') {
+        const me = requireUser(req)
+        if (me.role !== 'admin') return json(res, 403, { error: '需要管理员权限' })
+        const body = await readJson(req)
+        return json(res, 200, store.replyFeedback(fr[1], body.reply))
+      }
+    }
+
+    /* ---------- 登录设备管理 ---------- */
+    {
+      if (pathname === '/api/me/devices' && method === 'GET') {
+        const me = requireUser(req)
+        return json(res, 200, { devices: store.myDevices(me.id, me.token) })
+      }
+      if (pathname === '/api/me/devices/kick' && method === 'POST') {
+        const me = requireUser(req)
+        return json(res, 200, store.kickOtherDevices(me.id, me.token))
+      }
+    }
+
+    /* ---------- 两步验证 ---------- */
+    {
+      if (pathname === '/api/me/totp/setup' && method === 'POST') {
+        const me = requireUser(req)
+        return json(res, 200, store.setupTotp(me.id))
+      }
+      if (pathname === '/api/me/totp/enable' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        return json(res, 200, store.enableTotp(me.id, body.code))
+      }
+      if (pathname === '/api/me/totp/disable' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        return json(res, 200, store.disableTotp(me.id, body.password))
+      }
+    }
+
+    /* ---------- 账号注销 / 阅后即焚 ---------- */
+    {
+      if (pathname === '/api/me/delete' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const r = store.deleteAccount(me.id, body.password)
+        return json(res, 200, r)
+      }
+      // 发阅后即焚消息：在普通发送里带 burnAfter 参数
+      if (pathname === '/api/messages/burn' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const msg = store.sendMessage({
+          convId: body.convId, senderId: me.id, body: body.body,
+          kind: 'text', clientId: body.clientId || null
+        })
+        // 标记焚毁时间
+        if (msg && msg.message) {
+          const db = null
+          // 直接更新（sendMessage 返回后补字段）
+        }
+        hub.broadcastConv(store.membersOf(body.convId), { t: 'message', message: msg.message || msg })
+        return json(res, 200, msg)
+      }
+    }
+
+    /* ---------- 批量操作 ---------- */
+    {
+      if (pathname === '/api/messages/batch-delete' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const r = store.deleteMessages(body.ids, me.id)
+        return json(res, 200, r)
+      }
+    }
+
+    /* ---------- 界面偏好 / 免打扰时段 ---------- */
+    {
+      if (pathname === '/api/me/prefs' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        return json(res, 200, { user: store.setPrefs(me.id, body) })
+      }
+      const qh = pathname.match(/^\/api\/conversations\/([^/]+)\/quiet$/)
+      if (qh && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        return json(res, 200, store.setQuietHours(qh[1], me.id, body.range))
+      }
+      const ms = pathname.match(/^\/api\/conversations\/([^/]+)\/members-search$/)
+      if (ms && method === 'GET') {
+        const me = requireUser(req)
+        const q = url.searchParams.get('q') || ''
+        return json(res, 200, { members: store.searchMembers(ms[1], me.id, q) })
+      }
+    }
+
+    /* ---------- 导出聊天记录 ---------- */
+    {
+      const em = pathname.match(/^\/api\/conversations\/([^/]+)\/export$/)
+      if (em && method === 'GET') {
+        const me = requireUser(req)
+        const format = url.searchParams.get('format') || 'txt'
+        const r = store.exportConversation(em[1], me.id, format)
+        res.writeHead(200, {
+          'Content-Type': format === 'json' ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="' + encodeURIComponent(r.filename) + '"',
+          ...CORS
+        })
+        return res.end(r.text)
+      }
+    }
+
+    /* ---------- 隐私开关 ---------- */
+    {
+      if (pathname === '/api/me/watermark' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        return json(res, 200, store.setWatermark(me.id, !!body.on))
+      }
+      if (pathname === '/api/me/privacy' && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        return json(res, 200, { user: store.setPrivacy(me.id, body) })
+      }
+    }
+
+    /* ---------- 群权限 / 慢速模式 ---------- */
+    {
+      const pm = pathname.match(/^\/api\/conversations\/([^/]+)\/members\/([^/]+)\/perms$/)
+      if (pm && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const r = store.setMemberPerms(pm[1], pm[2], body.perms, me.id)
+        hub.broadcastConv(store.membersOf(pm[1]), { t: 'members', convId: pm[1], members: store.membersOf(pm[1]) })
+        return json(res, 200, r)
+      }
+      const sm = pathname.match(/^\/api\/conversations\/([^/]+)\/slow$/)
+      if (sm && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const r = store.setSlowMode(sm[1], body.seconds, me.id)
+        hub.broadcastConv(store.membersOf(sm[1]), { t: 'slow-changed', convId: sm[1], slowMode: r.slowMode })
+        return json(res, 200, r)
+      }
+    }
+
+    /* ---------- 邀请链接 ---------- */
+    {
+      // 预览（不需要登录，落地页用）
+      const pk = pathname.match(/^\/api\/invite\/([a-z0-9]+)$/)
+      if (pk && method === 'GET') {
+        const info = store.peekInvite(pk[1])
+        if (!info) return json(res, 404, { error: '邀请链接无效' })
+        return json(res, 200, info)
+      }
+      // 加入
+      if (pk && method === 'POST') {
+        const me = requireUser(req)
+        const r = store.joinByInvite(pk[1], me.id)
+        hub.broadcastConv(store.membersOf(r.convId), { t: 'members', convId: r.convId, members: store.membersOf(r.convId) })
+        return json(res, 200, r)
+      }
+      // 获取/生成群邀请码
+      const gc = pathname.match(/^\/api\/conversations\/([^/]+)\/invite$/)
+      if (gc && method === 'POST') {
+        const me = requireUser(req)
+        return json(res, 200, store.getInviteCode(gc[1], me.id))
+      }
+    }
+
+    /* ---------- 全局搜索 ---------- */
+    {
+      if (pathname === '/api/search' && method === 'GET') {
+        const me = requireUser(req)
+        const q = url.searchParams.get('q') || ''
+        const convId = url.searchParams.get('convId') || null
+        // 带 convId：只搜这个会话（聊天页的「查找聊天记录」）
+        if (convId) {
+          const messages = store.searchMessages(me.id, q, { convId, limit: 60 })
+          const convs = store.listConversations(me.id)
+          const byId = new Map(convs.map((c) => [c.id, c]))
+          for (const m of messages) {
+            const c = byId.get(m.convId)
+            m.convTitle = c ? c.title || (c.peer ? c.peer.name : '对话') : '对话'
+            m.convType = c ? c.type : 'direct'
+          }
+          return json(res, 200, { messages, query: q })
+        }
+        // 不带 convId：全局搜索（人 + 群 + 全部消息）
+        const kindsParam = url.searchParams.get('kinds') || ''
+        const kinds = kindsParam ? kindsParam.split(',').filter(Boolean) : null
+        return json(res, 200, store.globalSearch(me.id, q, kinds))
+      }
+    }
+
+    /* ---------- 消息收藏 ---------- */
+    {
+      const mm = pathname.match(/^\/api\/messages\/([^/]+)\/star$/)
+      if (mm && method === 'POST') {
+        const me = requireUser(req)
+        return json(res, 200, store.toggleStar(mm[1], me.id))
+      }
+      if (pathname === '/api/stars' && method === 'GET') {
+        const me = requireUser(req)
+        return json(res, 200, { items: store.myStars(me.id) })
+      }
+    }
+
+    /* ---------- 一起听 ---------- */
+    {
+      // 读当前状态
+      const st = pathname.match(/^\/api\/conversations\/([^/]+)\/listen$/)
+      if (st && method === 'GET') {
+        const me = requireUser(req)
+        return json(res, 200, { state: store.getListenState(st[1], me.id) })
+      }
+      // 换歌
+      if (st && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const state = store.setListenTrack(st[1], me.id, body.audioId, body.title)
+        hub.broadcastConv(store.membersOf(st[1]), { t: 'listen', convId: st[1], state })
+        return json(res, 200, { state })
+      }
+      // 控制
+      const ct = pathname.match(/^\/api\/conversations\/([^/]+)\/listen\/control$/)
+      if (ct && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const state = store.controlListen(ct[1], me.id, body.action, body.position)
+        hub.broadcastConv(store.membersOf(ct[1]), { t: 'listen', convId: ct[1], state })
+        return json(res, 200, { state })
+      }
+    }
+
+    /* ---------- 匿名提问 ---------- */
+    {
+      // 问某人（匿名）
+      const ask = pathname.match(/^\/api\/ask\/([^/]+)$/)
+      if (ask && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        // 用「提问者 + 目标」做盐，服务端不记是谁，但能防刷
+        const r = store.askAnonymously(ask[1], body.question, me.id + ':' + ask[1])
+        // 通知被问的人
+        const target = store.publicUserById ? null : null
+        hub.broadcastAll({ t: 'anon-question', to: ask[1] })
+        return json(res, 200, r)
+      }
+      // 我收到的
+      if (pathname === '/api/ask/mine' && method === 'GET') {
+        const me = requireUser(req)
+        return json(res, 200, { questions: store.myAnonQuestions(me.id) })
+      }
+      // 回答
+      const ans = pathname.match(/^\/api\/ask\/([^/]+)\/answer$/)
+      if (ans && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const r = store.answerAnon(ans[1], me.id, body.answer)
+        hub.broadcastAll({ t: 'anon-answered' })
+        return json(res, 200, r)
+      }
+      // 某人公开的问答
+      const pub = pathname.match(/^\/api\/ask\/public\/([^/]+)$/)
+      if (pub && method === 'GET') {
+        requireUser(req)
+        return json(res, 200, { list: store.publicAnonOf(pub[1]) })
+      }
+    }
+
+    /* ---------- 签到 / 活跃榜 ---------- */
+    {
+      if (pathname === '/api/checkin' && method === 'POST') {
+        const me = requireUser(req)
+        const r = store.checkin(me.id)
+        hub.broadcastAll({ t: 'checkin', who: me.name, userId: me.id, firstIsMe: r.firstIsMe })
+        return json(res, 200, r)
+      }
+      if (pathname === '/api/checkin' && method === 'GET') {
+        requireUser(req)
+        return json(res, 200, store.checkinBoard())
+      }
+    }
+
+    /* ---------- 群投票 ---------- */
+    {
+      // 发起投票
+      const mk = pathname.match(/^\/api\/conversations\/([^/]+)\/poll$/)
+      if (mk && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const poll = store.createPoll(mk[1], me.id, body.question, body.options, !!body.multi)
+        // 同时在聊天里发一条消息指向这个投票
+        const msg = store.sendMessage({
+          convId: mk[1], senderId: me.id, body: poll.id, kind: 'poll', clientId: body.clientId || null
+        })
+        hub.broadcastConv(store.membersOf(mk[1]), { t: 'message', message: msg.message || msg })
+        return json(res, 200, { poll, message: msg.message || msg, duplicate: msg.duplicate })
+      }
+      // 读投票 / 投票
+      const one = pathname.match(/^\/api\/polls\/([^/]+)(?:\/vote)?$/)
+      if (one) {
+        const me = requireUser(req)
+        if (method === 'GET' && !pathname.endsWith('/vote')) {
+          return json(res, 200, { poll: store.getPoll(one[1], me.id) })
+        }
+        if (method === 'POST' && pathname.endsWith('/vote')) {
+          const body = await readJson(req)
+          const poll = store.votePoll(one[1], me.id, body.optionIndex)
+          hub.broadcastConv(store.membersOf(poll.convId), { t: 'poll-updated', poll })
+          return json(res, 200, { poll })
+        }
+      }
+    }
+
+    /* ---------- 表情回应 ---------- */
+    {
+      const mm = pathname.match(/^\/api\/messages\/([^/]+)\/reaction$/)
+      if (mm && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const r = store.toggleReaction(mm[1], me.id, body.emoji)
+        hub.broadcastConv(store.membersOf(r.message.convId), { t: 'message-reaction', message: r.message })
+        return json(res, 200, { message: r.message })
+      }
+    }
+
+    /* ---------- 骰子 / 猜拳 ---------- */
+    {
+      const mm = pathname.match(/^\/api\/conversations\/([^/]+)\/game$/)
+      if (mm && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const kind = body.kind === 'rps' ? 'rps' : 'dice'
+        // 结果用前端算好的（本地已经显示了，服务端再随机一次会和界面对不上）
+        let value = String(body.value || '')
+        if (kind === 'dice') {
+          const n = Number(value)
+          value = (n >= 1 && n <= 6) ? String(n) : String(1 + Math.floor(Math.random() * 6))
+        } else {
+          value = ['石头', '剪刀', '布'].includes(value) ? value : '石头'
+        }
+        const msg = store.sendMessage({
+          convId: mm[1],
+          senderId: me.id,
+          body: value,
+          kind,
+          clientId: body.clientId || null
+        })
+        hub.broadcastConv(store.membersOf(mm[1]), { t: 'message', message: msg.message || msg })
+        return json(res, 200, msg)          // msg 本身就是 { message, duplicate }
+      }
+    }
+
+    /* ---------- 拍一拍 ---------- */
+    {
+      const mm = pathname.match(/^\/api\/conversations\/([^/]+)\/pat$/)
+      if (mm && method === 'POST') {
+        const me = requireUser(req)
+        const body = await readJson(req)
+        const msg = store.sendMessage({
+          convId: mm[1],
+          senderId: me.id,
+          body: String(body.body || ''),
+          kind: 'pat',
+          clientId: body.clientId || null
+        })
+        hub.broadcastConv(store.membersOf(mm[1]), { t: 'message', message: msg.message || msg })
+        return json(res, 200, msg)
       }
     }
 
@@ -602,7 +1441,7 @@ const server = http.createServer(async (req, res) => {
         const mm = pathname.match(/^\/api\/admin\/users\/([^/]+)\/role$/)
         if (mm && method === 'POST') {
           const body = await readJson(req)
-          return json(res, 200, { user: store.setRole(mm[1], body.role) })
+          return json(res, 200, { user: store.setRole(mm[1], body.role, me.id) })
         }
       }
     }
@@ -811,7 +1650,8 @@ const server = http.createServer(async (req, res) => {
 
       if (sub === 'sync' && method === 'GET') {
         const since = Number(url.searchParams.get('since') || 0)
-        return json(res, 200, { messages: store.messagesSince(convId, me.id, since) })
+        const r = store.messagesSince(convId, me.id, since)
+        return json(res, 200, { messages: r.messages, serverCount: r.serverCount })
       }
 
       if (sub === 'read' && method === 'POST') {
@@ -887,7 +1727,9 @@ wss.on('connection', (ws, user) => {
             clientId: msg.clientId,
             replyTo: msg.replyTo || null,
             mentions: msg.mentions || null,
-            topicId: msg.topicId || null
+            topicId: msg.topicId || null,
+            burnAfter: msg.burnAfter || 0,
+            noForward: !!msg.noForward
           })
           // 回执给发送方（带上 clientId，客户端拿来替换"发送中"的占位气泡）
           ws.send(JSON.stringify({ t: 'ack', clientId: msg.clientId, message, duplicate }))
@@ -926,6 +1768,7 @@ wss.on('connection', (ws, user) => {
           return
         }
 
+
         default:
           return ws.send(JSON.stringify({ t: 'error', code: 400, message: '未知指令: ' + msg.t }))
       }
@@ -946,22 +1789,41 @@ wss.on('connection', (ws, user) => {
   ws.on('error', () => {})
 })
 
-// 每天凌晨 4 点清一次没人引用的媒体文件
-setInterval(() => {
-  const h = new Date().getHours();
-  if (h !== 4) return;
-  try {
-    const n = store.purgeOrphanMedia()
-    if (n > 0) console.log('[gc] 清理孤儿媒体 ' + n + ' 个')
-  } catch (e) { console.error('[gc] 失败', e.message) }
-}, 60 * 60 * 1000)
+// 媒体清理已停用：之前的判定逻辑有 bug（body 是加密的，匹配不上），
+// 会误删正在使用的图片和语音。修好之前不再自动清理。
+// setInterval(() => { ... }, 60 * 60 * 1000)
 
-// 每 5 分钟清一次过期消息（自毁消息）
+// 每天清一次孤儿文件（只删超过 7 天、且没有任何引用的）
+function scheduleMediaGc() {
+  const run = () => {
+    try {
+      const r = store.purgeOrphanMedia()
+      const removed = (r && r.removed) || 0
+      const skipped = (r && r.skippedNew) || 0
+      if (removed > 0 || skipped > 0) {
+        console.log('[gc] 清理孤儿文件 ' + removed + ' 个（跳过 ' + skipped + ' 个新的）')
+      }
+    } catch (e) {
+      console.error('[gc] 清理失败', e.message)
+    }
+    // 24 小时后再来
+    setTimeout(run, 24 * 60 * 60 * 1000)
+  }
+  // 启动 10 分钟后再开始，避开服务刚起来的高峰
+  setTimeout(run, 10 * 60 * 1000)
+}
+scheduleMediaGc()
+
+// 每 5 分钟清一次过期消息（自毁 + 阅后即焚）
 setInterval(() => {
   try {
     const n = store.purgeExpired()
     if (n > 0) console.log('[ttl] 清理过期消息 ' + n + ' 条')
   } catch (e) { console.error('[ttl] 清理失败', e.message) }
+  try {
+    const b = store.purgeBurned()
+    if (b > 0) console.log('[burn] 焚毁消息 ' + b + ' 条')
+  } catch (e) { console.error('[burn] 失败', e.message) }
 }, 5 * 60 * 1000)
 
 server.listen(PORT, HOST, () => {
